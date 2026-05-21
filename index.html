@@ -1,0 +1,1804 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AquaMap — Sistema de Pontos de Coleta</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/dexie@3.2.4/dist/dexie.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{font-family:'IBM Plex Sans',sans-serif;font-size:14px;background:var(--bg0);color:var(--text);display:flex;flex-direction:column}
+:root{
+  --bg0:#07101a;--bg1:#0c1824;--bg2:#111f2e;--bg3:#162638;--bg4:#1d3045;--bg5:#253c55;
+  --accent:#0891b2;--accent-h:#0e7490;--accent-l:#22d3ee;--accent-g:rgba(8,145,178,0.15);
+  --text:#dde6f0;--text2:#8da0b5;--text3:#4a6070;
+  --danger:#ef4444;--danger-h:#dc2626;--success:#10b981;--warning:#f59e0b;
+  --border:rgba(255,255,255,0.06);--border2:rgba(255,255,255,0.12);
+  --r:5px;--sw:300px;--th:52px;--shad:0 4px 16px rgba(0,0,0,0.5)
+}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:var(--bg1)}
+::-webkit-scrollbar-thumb{background:var(--bg5);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--accent)}
+
+/* ── TOPBAR ── */
+#topbar{height:var(--th);background:var(--bg1);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 14px;gap:10px;flex-shrink:0;z-index:100}
+.logo{display:flex;align-items:center;gap:9px;white-space:nowrap;flex-shrink:0}
+.logo i{color:var(--accent-l);font-size:20px}
+.logo-name{font-size:16px;font-weight:600;color:var(--text)}
+.logo-sub{font-size:10px;color:var(--text3);font-weight:400;line-height:1}
+.search-wrap{position:relative;flex:1;max-width:260px}
+.search-wrap input{width:100%;padding:6px 30px 6px 10px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-size:13px;font-family:inherit;outline:none;transition:border-color .2s}
+.search-wrap input:focus{border-color:var(--accent)}
+.search-wrap input::placeholder{color:var(--text3)}
+.search-wrap .si{position:absolute;right:9px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:11px;pointer-events:none}
+.tbar{display:flex;align-items:center;gap:4px;margin-left:auto}
+.tbtn{display:flex;align-items:center;gap:5px;padding:5px 9px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);font-size:12px;font-family:inherit;cursor:pointer;transition:all .15s;white-space:nowrap}
+.tbtn:hover{background:var(--bg4);color:var(--text)}
+.tbtn.on{background:var(--accent-g);border-color:var(--accent);color:var(--accent-l)}
+.tbtn i{font-size:12px}
+.tsep{width:1px;height:18px;background:var(--border2);margin:0 3px}
+
+/* ── WORKSPACE ── */
+#workspace{display:flex;flex:1;overflow:hidden}
+
+/* ── SIDEBAR ── */
+#sidebar{width:var(--sw);background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;flex-shrink:0}
+#sh{padding:9px 10px;background:var(--bg1);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:5px}
+#sh .shtitle{font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.8px;flex:1}
+.shbtn{width:26px;height:26px;background:var(--bg4);border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:11px;transition:all .15s}
+.shbtn:hover{background:var(--bg5);color:var(--text)}
+.shbtn.danger:hover{background:rgba(239,68,68,.15);color:var(--danger);border-color:rgba(239,68,68,.3)}
+.shbtn.lit{color:var(--accent-l);border-color:var(--accent)}
+
+/* ── LAYER TREE ── */
+#layerTree{flex:1;overflow-y:auto;padding:5px}
+.empty-state{text-align:center;padding:36px 16px;color:var(--text3)}
+.empty-state i{font-size:30px;margin-bottom:10px;display:block}
+.empty-state p{font-size:12px;line-height:1.6}
+
+.li{display:flex;align-items:center;gap:4px;padding:4px 6px;border-radius:var(--r);cursor:pointer;transition:background .1s;user-select:none;position:relative;min-height:30px}
+.li:hover{background:var(--bg4)}
+.li.sel{background:rgba(8,145,178,.18);outline:1px solid rgba(8,145,178,.3)}
+.li.li-folder{background:var(--bg3)}
+.li.li-folder:hover{background:var(--bg4)}
+.li.li-folder.sel{background:rgba(8,145,178,.22)}
+.li[data-depth="1"]{margin-left:18px}
+.li[data-depth="2"]{margin-left:36px}
+.li[data-depth="3"]{margin-left:54px}
+.li.drag-top{box-shadow:0 -2px 0 var(--accent-l)}
+.li.drag-bot{box-shadow:0 2px 0 var(--accent-l)}
+.li.drag-in{outline:2px dashed var(--accent)!important}
+.li.dragging{opacity:.35}
+.li.s-match .lname{color:var(--warning)}
+.li.s-miss{opacity:.3}
+.li.map-hi{background:rgba(34,211,238,.1)!important;outline:1px solid var(--accent-l)!important}
+
+.li-drag{color:var(--text3);cursor:move;font-size:9px;flex-shrink:0;padding:0 2px}
+.li-vis{width:17px;height:17px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:10px;cursor:pointer;border-radius:3px;transition:all .15s}
+.li-vis:hover{background:var(--bg5)}
+.vis-on{color:var(--success)}
+.vis-off{color:var(--text3)}
+.vis-mix{color:var(--warning)}
+.li-icon{width:19px;height:19px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:11px;cursor:pointer}
+.fi{color:var(--warning)}
+.pi{color:var(--accent-l)}
+.li-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;border:1px solid rgba(255,255,255,.15)}
+.li-text{flex:1;min-width:0}
+.lname{font-size:12px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lmeta{font-size:10px;color:var(--text3);font-family:'IBM Plex Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.li-acts{display:flex;gap:2px;opacity:0;transition:opacity .1s;flex-shrink:0}
+.li:hover .li-acts{opacity:1}
+.li-act{width:21px;height:21px;display:flex;align-items:center;justify-content:center;border:none;background:none;color:var(--text3);cursor:pointer;border-radius:3px;font-size:10px;transition:all .15s}
+.li-act:hover{background:var(--bg5);color:var(--text)}
+.li-act.danger:hover{background:rgba(239,68,68,.15);color:var(--danger)}
+
+/* ── ADD FORM ── */
+#addForm{background:var(--bg1);border-top:1px solid var(--border);padding:11px;flex-shrink:0;max-height:280px;overflow-y:auto}
+.fsect{font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.8px;margin-bottom:9px;display:flex;align-items:center;gap:6px}
+.fg{margin-bottom:7px}
+.fg label{display:block;font-size:11px;color:var(--text2);margin-bottom:3px;font-weight:500}
+.fg input,.fg select,.fg textarea{width:100%;padding:5px 8px;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);color:var(--text);font-size:12px;font-family:inherit;outline:none;transition:border-color .2s}
+.fg input:focus,.fg select:focus,.fg textarea:focus{border-color:var(--accent)}
+.fg input::placeholder,.fg textarea::placeholder{color:var(--text3)}
+.fg select option{background:var(--bg3)}
+.fg textarea{resize:vertical;min-height:55px;font-family:'IBM Plex Mono',monospace;font-size:11px}
+.fg input[type="color"]{padding:2px;height:28px;cursor:pointer}
+.frow{display:flex;gap:5px;margin-top:9px}
+.btn-p{flex:1;padding:6px 10px;background:var(--accent);border:none;border-radius:var(--r);color:#fff;font-size:12px;font-family:inherit;font-weight:500;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;transition:background .15s}
+.btn-p:hover{background:var(--accent-h)}
+.btn-s{padding:6px 10px;background:var(--bg4);border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);font-size:12px;font-family:inherit;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all .15s}
+.btn-s:hover{background:var(--bg5);color:var(--text)}
+
+/* ── STATS ── */
+#sstats{display:flex;padding:9px 10px;background:var(--bg1);border-top:1px solid var(--border);flex-shrink:0;gap:8px}
+.stat{text-align:center;flex:1}
+.stat span{display:block;font-size:18px;font-weight:600;color:var(--accent-l);font-family:'IBM Plex Mono',monospace;line-height:1}
+.stat label{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px}
+
+/* ── MAP ── */
+#mapArea{flex:1;position:relative;overflow:hidden}
+#map{width:100%;height:100%}
+#mapCtrl{position:absolute;top:10px;right:10px;z-index:500;display:flex;flex-direction:column;gap:4px}
+.mctl{width:34px;height:34px;background:var(--bg1);border:1px solid var(--border2);border-radius:var(--r);color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px;transition:all .15s;box-shadow:var(--shad)}
+.mctl:hover{background:var(--bg3);color:var(--text)}
+
+/* ── CONTEXT MENU ── */
+#ctx{position:fixed;z-index:9999;background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);box-shadow:var(--shad),0 0 0 1px rgba(0,0,0,.5);min-width:175px;padding:4px;display:none}
+#ctx.show{display:block}
+.citem{display:flex;align-items:center;gap:8px;padding:6px 9px;font-size:12px;color:var(--text2);cursor:pointer;border-radius:3px;transition:all .1s}
+.citem:hover{background:var(--bg5);color:var(--text)}
+.citem.danger{color:var(--danger)}
+.citem.danger:hover{background:rgba(239,68,68,.1)}
+.citem.hid{display:none!important}
+.citem i{width:13px;text-align:center;font-size:11px}
+.csep{height:1px;background:var(--border);margin:3px 0}
+
+/* ── MODALS ── */
+.moverlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:5000;align-items:center;justify-content:center;backdrop-filter:blur(2px)}
+.moverlay.show{display:flex}
+.mbox{background:var(--bg3);border:1px solid var(--border2);border-radius:8px;width:90%;max-width:440px;max-height:85vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--shad),0 0 40px rgba(0,0,0,.5)}
+.mhead{padding:13px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.mhead h3{font-size:14px;font-weight:600;color:var(--text)}
+.mclose{background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer;line-height:1;transition:color .15s}
+.mclose:hover{color:var(--text)}
+.mbody{padding:15px;overflow-y:auto;flex:1}
+.mfoot{padding:11px 15px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end}
+
+/* Color swatches */
+#cswatches{display:flex;flex-wrap:wrap;gap:6px}
+.cswatch{width:26px;height:26px;border-radius:4px;cursor:pointer;border:2px solid transparent;transition:all .15s}
+.cswatch:hover{transform:scale(1.2)}
+.cswatch.active{border-color:#fff;box-shadow:0 0 0 2px var(--accent)}
+
+/* Status toast */
+#toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%) translateY(60px);background:var(--bg3);border:1px solid var(--border2);border-radius:20px;padding:7px 16px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);z-index:10000;box-shadow:var(--shad);opacity:0;transition:all .3s ease;pointer-events:none}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#toast i{color:var(--success)}
+#toast.error i{color:var(--danger)}
+#toast.warning i{color:var(--warning)}
+#toast.info i{color:var(--accent-l)}
+
+/* Leaflet popup overrides */
+.leaflet-popup-content-wrapper{background:var(--bg3)!important;border:1px solid var(--border2)!important;box-shadow:var(--shad)!important;border-radius:8px!important;padding:0!important;color:var(--text)!important}
+.leaflet-popup-content{margin:0!important;padding:0!important;font-family:'IBM Plex Sans',sans-serif!important}
+.leaflet-popup-tip{background:var(--bg3)!important}
+.leaflet-popup-close-button{color:var(--text2)!important;top:8px!important;right:8px!important;font-size:16px!important}
+
+.mpop{padding:13px 15px;min-width:175px}
+.mpop-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:5px;padding-right:16px}
+.mpop-coords{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text2);margin-bottom:3px}
+.mpop-period{font-size:11px;color:var(--text3);margin-bottom:5px}
+.mpop-desc{font-size:11px;color:var(--text2);background:var(--bg4);border-radius:4px;padding:6px 8px;margin-bottom:8px;white-space:pre-wrap;max-height:80px;overflow-y:auto}
+.mpop-acts{display:flex;gap:5px}
+.pbtn{flex:1;padding:5px 7px;border-radius:4px;border:1px solid var(--border2);background:var(--bg4);color:var(--text2);font-size:11px;cursor:pointer;text-align:center;transition:all .15s}
+.pbtn:hover{background:var(--bg5);color:var(--text)}
+
+/* Point label */
+.point-label{font-size:10px;font-family:'IBM Plex Sans',sans-serif;font-weight:500;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.9);white-space:nowrap;pointer-events:none;background:rgba(0,0,0,.5);border-radius:3px;padding:1px 4px}
+</style>
+</head>
+<body>
+
+<div id="app" style="display:flex;flex-direction:column;height:100vh;">
+
+<!-- TOPBAR -->
+<header id="topbar">
+  <div class="logo">
+    <i class="fas fa-water"></i>
+    <div>
+      <div class="logo-name">AquaMap</div>
+      <div class="logo-sub">Pontos de Coleta de Água</div>
+    </div>
+  </div>
+
+  <div class="search-wrap">
+    <input type="text" id="searchInput" placeholder="Pesquisar… (F2)">
+    <i class="fas fa-search si"></i>
+  </div>
+
+  <div class="tbar">
+    <button class="tbtn" id="btnUndo" title="Desfazer (Ctrl+Z)"><i class="fas fa-undo"></i><span>Desfazer</span></button>
+    <button class="tbtn" id="btnLabels" title="Rótulos nos pontos"><i class="fas fa-tag"></i><span>Rótulos</span></button>
+    <div class="tsep"></div>
+    <button class="tbtn" id="btnSelAll" title="Selecionar tudo (Ctrl+A)"><i class="fas fa-check-double"></i></button>
+    <button class="tbtn" id="btnShowAll" title="Mostrar todos"><i class="fas fa-eye"></i></button>
+    <button class="tbtn" id="btnHideAll" title="Ocultar todos"><i class="fas fa-eye-slash"></i></button>
+    <div class="tsep"></div>
+    <button class="tbtn" id="btnBackup" title="Exportar backup"><i class="fas fa-download"></i><span>Backup</span></button>
+    <button class="tbtn" id="btnImportBtn" title="Importar JSON/KML/KMZ"><i class="fas fa-upload"></i><span>Importar</span></button>
+    <input type="file" id="importFileInput" accept=".json,.kml,.kmz" style="display:none;">
+    <div class="tsep"></div>
+    <button class="tbtn" id="btnSaveFolder" title="Selecionar pasta de save automático (OneDrive - CAJ\GQM - CAS\05. Monitoramentos\01 - Águas e efluentes\Pontos conferencia)"><i class="fas fa-folder-open"></i><span id="saveFolderLabel">Pasta Save</span></button>
+  </div>
+</header>
+
+<!-- WORKSPACE -->
+<div id="workspace">
+
+  <!-- SIDEBAR -->
+  <aside id="sidebar">
+    <div id="sh">
+      <span class="shtitle">Camadas</span>
+      <button class="shbtn" id="btnNewFolder" title="Nova Pasta (Ctrl+Shift+F)"><i class="fas fa-folder-plus"></i></button>
+      <button class="shbtn" id="btnNewPoint" title="Novo Ponto (foco no form)"><i class="fas fa-map-pin"></i></button>
+      <button class="shbtn" id="btnCopy" title="Copiar selecionados (Ctrl+C)"><i class="fas fa-copy"></i></button>
+      <button class="shbtn" id="btnPaste" title="Colar (Ctrl+V)"><i class="fas fa-paste"></i></button>
+      <button class="shbtn danger" id="btnDelSel" title="Excluir selecionados (Del)"><i class="fas fa-trash"></i></button>
+    </div>
+
+    <div id="layerTree"></div>
+
+    <div id="addForm">
+      <div class="fsect"><i class="fas fa-plus-circle"></i> Adicionar Pontos</div>
+      <div class="fg">
+        <label>Nome Base (opcional)</label>
+        <input type="text" id="fldName" placeholder="Ex: Ponto de Coleta">
+      </div>
+      <div class="fg">
+        <label>Pasta de Destino</label>
+        <select id="fldFolder"><option value="">— Raiz —</option></select>
+      </div>
+      <div class="fg">
+        <label>Mês/Período da Coleta</label>
+        <input type="month" id="fldMonth">
+      </div>
+      <div class="fg">
+        <label>Coordenadas (lat, lng — uma por linha)</label>
+        <textarea id="fldCoords" placeholder="-15.7938, -47.8828&#10;-23.5505, -46.6333"></textarea>
+      </div>
+      <div class="fg">
+        <label>Cor dos Pontos</label>
+        <input type="color" id="fldColor" value="#0891b2">
+      </div>
+      <div class="frow">
+        <button class="btn-p" id="btnAddPoints"><i class="fas fa-plus"></i> Adicionar</button>
+        <button class="btn-s" id="btnClearForm" title="Limpar formulário"><i class="fas fa-times"></i></button>
+      </div>
+    </div>
+
+    <div id="sstats">
+      <div class="stat"><span id="stFolders">0</span><label>Pastas</label></div>
+      <div class="stat"><span id="stPoints">0</span><label>Pontos</label></div>
+      <div class="stat"><span id="stSel">0</span><label>Selecionados</label></div>
+    </div>
+  </aside>
+
+  <!-- MAP -->
+  <main id="mapArea">
+    <div id="map"></div>
+    <div id="mapCtrl">
+      <button class="mctl" id="btnCenter" title="Centralizar no Brasil"><i class="fas fa-home"></i></button>
+      <button class="mctl" id="btnFitAll" title="Enquadrar todos os pontos"><i class="fas fa-expand-arrows-alt"></i></button>
+    </div>
+  </main>
+
+</div><!-- #workspace -->
+
+<!-- CONTEXT MENU -->
+<div id="ctx">
+  <div class="citem" id="cx-newFolder"><i class="fas fa-folder-plus"></i> Nova Pasta Aqui</div>
+  <div class="citem" id="cx-newSub"><i class="fas fa-folder"></i> Nova Subpasta</div>
+  <div class="citem" id="cx-newPointHere"><i class="fas fa-map-pin"></i> Novo Ponto Aqui</div>
+  <div class="csep"></div>
+  <div class="citem" id="cx-copy"><i class="fas fa-copy"></i> Copiar</div>
+  <div class="citem" id="cx-paste"><i class="fas fa-paste"></i> Colar Dentro</div>
+  <div class="csep"></div>
+  <div class="citem" id="cx-edit"><i class="fas fa-edit"></i> Editar</div>
+  <div class="citem" id="cx-color"><i class="fas fa-palette"></i> Mudar Cor</div>
+  <div class="citem" id="cx-center"><i class="fas fa-crosshairs"></i> Centralizar no Mapa</div>
+  <div class="csep" id="cx-sep-del"></div>
+  <div class="citem danger" id="cx-delete"><i class="fas fa-trash"></i> Excluir</div>
+</div>
+
+<!-- MODAL: NOVA/EDITAR PASTA -->
+<div class="moverlay" id="folderModal">
+  <div class="mbox">
+    <div class="mhead">
+      <h3 id="folderModalTitle">Nova Pasta</h3>
+      <button class="mclose" data-close="folderModal">×</button>
+    </div>
+    <div class="mbody">
+      <div class="fg"><label>Nome da Pasta *</label><input type="text" id="mFolderName" placeholder="Ex: Janeiro 2025"></div>
+      <div class="fg"><label>Pasta Pai</label><select id="mFolderParent"><option value="">— Raiz —</option></select></div>
+      <div class="fg"><label>Cor</label><input type="color" id="mFolderColor" value="#f59e0b"></div>
+    </div>
+    <div class="mfoot">
+      <button class="btn-s" data-close="folderModal">Cancelar</button>
+      <button class="btn-p" id="btnConfirmFolder"><i class="fas fa-check"></i> Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: EDITAR CAMADA -->
+<div class="moverlay" id="editModal">
+  <div class="mbox">
+    <div class="mhead">
+      <h3 id="editModalTitle">Editar</h3>
+      <button class="mclose" data-close="editModal">×</button>
+    </div>
+    <div class="mbody" id="editModalBody"></div>
+    <div class="mfoot">
+      <button class="btn-s" data-close="editModal">Cancelar</button>
+      <button class="btn-p" id="btnConfirmEdit"><i class="fas fa-save"></i> Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: COR -->
+<div class="moverlay" id="colorModal">
+  <div class="mbox" style="max-width:370px">
+    <div class="mhead">
+      <h3>Escolher Cor</h3>
+      <button class="mclose" data-close="colorModal">×</button>
+    </div>
+    <div class="mbody">
+      <div id="cswatches"></div>
+      <div class="fg" style="margin-top:11px">
+        <label>Cor personalizada</label>
+        <input type="color" id="colorCustom" value="#0891b2" style="width:100%;height:38px;">
+      </div>
+    </div>
+    <div class="mfoot">
+      <button class="btn-s" data-close="colorModal">Cancelar</button>
+      <button class="btn-p" id="btnApplyColor"><i class="fas fa-check"></i> Aplicar</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast">
+  <i class="fas fa-check-circle" id="toastIcon"></i>
+  <span id="toastText"></span>
+</div>
+
+</div><!-- #app -->
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════════════════════
+
+const PRESET_COLORS = [
+  '#ef4444','#f97316','#f59e0b','#eab308','#84cc16',
+  '#22c55e','#10b981','#14b8a6','#06b6d4','#0ea5e9',
+  '#3b82f6','#6366f1','#8b5cf6','#a855f7','#ec4899',
+  '#f43f5e','#64748b','#9ca3af','#a16207','#ffffff',
+  '#0891b2','#0077b6','#023e8a','#1a237e','#4a148c',
+  '#880e4f','#b71c1c','#e65100','#558b2f','#006064',
+  '#004d40','#01579b','#827717','#37474f','#3e2723'
+];
+
+// ═══════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════
+
+let db, map, markersLayer;
+let markers = {};             // id -> { marker }
+let selectedIds = new Set();
+let clipboard = [];           // deep-copied layer trees
+let expandedFolders = new Set();
+let showLabels = true;
+let saveDirHandle  = null;
+let autoSaveTimer  = null;
+let undoStack = [];
+let ctxTarget = null;         // { type:'layer'|'empty', id, layerType }
+let editingLayerId = null;
+let colorTargetId = null;
+let colorTargetType = 'single';
+let dragSrcId = null;
+let lastSelectedId = null;
+let toastTimer = null;
+let folderModalMode = 'create'; // 'create'|'edit'
+
+// ═══════════════════════════════════════════════════════════
+// UTILITIES
+// ═══════════════════════════════════════════════════════════
+
+function esc(text) {
+  const d = document.createElement('div');
+  d.appendChild(document.createTextNode(String(text || '')));
+  return d.innerHTML;
+}
+
+function showStatus(msg, type = 'success') {
+  const toast = document.getElementById('toast');
+  document.getElementById('toastText').textContent = msg;
+  document.getElementById('toastIcon').className = {
+    success: 'fas fa-check-circle',
+    error:   'fas fa-exclamation-circle',
+    warning: 'fas fa-exclamation-triangle',
+    info:    'fas fa-info-circle'
+  }[type] || 'fas fa-check-circle';
+  toast.className = type;
+  toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove('show'), 3000);
+}
+
+function openModal(id) { document.getElementById(id).classList.add('show'); }
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+
+// ═══════════════════════════════════════════════════════════
+// DATABASE
+// ═══════════════════════════════════════════════════════════
+
+async function initDB() {
+  db = new Dexie('AquaMapDB_v3');
+  db.version(1).stores({
+    layers: '++id, name, type, parentId, order, createdAt'
+  });
+  await db.open();
+}
+
+async function getMaxOrder() {
+  const all = await db.layers.toArray();
+  return all.length > 0 ? Math.max(...all.map(l => l.order || 0)) : 0;
+}
+
+async function normalizeOrders() {
+  const all = await db.layers.toArray();
+  all.sort((a, b) => (a.order || 0) - (b.order || 0));
+  const updates = [];
+  for (let i = 0; i < all.length; i++) {
+    if (all[i].order !== i * 10) updates.push({ id: all[i].id, changes: { order: i * 10 } });
+  }
+  for (const u of updates) await db.layers.update(u.id, u.changes);
+}
+
+// ═══════════════════════════════════════════════════════════
+// MAP INIT
+// ═══════════════════════════════════════════════════════════
+
+function initMap() {
+  map = L.map('map', { zoomControl: true }).setView([-15.793889, -47.882778], 4);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 19
+  }).addTo(map);
+
+  markersLayer = L.layerGroup().addTo(map);
+
+  // Shift+Click → add point
+  map.on('click', (e) => {
+    if (e.originalEvent.shiftKey) promptAddPointFromMap(e.latlng);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// MARKER HELPERS
+// ═══════════════════════════════════════════════════════════
+
+function makeIcon(color) {
+  const c = color || '#0891b2';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="30" viewBox="0 0 22 30">
+    <path d="M11 0C4.92 0 0 4.92 0 11c0 8.25 11 19 11 19S22 19.25 22 11C22 4.92 17.08 0 11 0z"
+          fill="${c}" stroke="rgba(0,0,0,0.35)" stroke-width="1"/>
+    <circle cx="11" cy="11" r="3.8" fill="rgba(255,255,255,0.85)"/>
+  </svg>`;
+  return L.divIcon({ html: svg, className: '', iconSize: [22, 30], iconAnchor: [11, 30], popupAnchor: [0, -30] });
+}
+
+function buildPopupContent(layer) {
+  const div = document.createElement('div');
+  div.className = 'mpop';
+
+  let periodHtml = '';
+  if (layer.collectedAt) {
+    const [y, m] = layer.collectedAt.split('-');
+    const mns = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    periodHtml = `<div class="mpop-period"><i class="fas fa-calendar" style="font-size:9px;margin-right:4px;"></i>${mns[parseInt(m)-1]} ${y}</div>`;
+  }
+  const descHtml = layer.description
+    ? `<div class="mpop-desc">${esc(layer.description)}</div>` : '';
+
+  div.innerHTML = `
+    <div class="mpop-title"><i class="fas fa-tint" style="color:#22d3ee;font-size:10px;margin-right:5px;"></i>${esc(layer.name)}</div>
+    <div class="mpop-coords">${(layer.lat||0).toFixed(6)}, ${(layer.lng||0).toFixed(6)}</div>
+    ${periodHtml}${descHtml}
+    <div class="mpop-acts">
+      <button class="pbtn" onclick="editLayerById(${layer.id});map.closePopup()"><i class="fas fa-edit"></i> Editar</button>
+      <button class="pbtn" onclick="copyLayerById(${layer.id});map.closePopup()"><i class="fas fa-copy"></i> Copiar</button>
+    </div>`;
+  return div;
+}
+
+function addMarkerToMap(layer) {
+  if (layer.type !== 'point') return;
+  if (layer.lat == null || layer.lng == null) return;
+
+  const marker = L.marker([layer.lat, layer.lng], {
+    icon: makeIcon(layer.color),
+    title: layer.name
+  });
+
+  marker.bindPopup(() => buildPopupContent(layer), { maxWidth: 260 });
+
+  marker.on('click', () => {
+    document.querySelectorAll('.li.map-hi').forEach(e => e.classList.remove('map-hi'));
+    const el = document.querySelector(`.li[data-id="${layer.id}"]`);
+    if (el) { el.classList.add('map-hi'); el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+  });
+
+  if (layer.visible !== false) markersLayer.addLayer(marker);
+
+  // Rótulo permanente — sempre visível acima do ponto
+  marker.bindTooltip(layer.name, { permanent: true, direction: 'top', className: 'point-label', offset: [0, -30] });
+
+  markers[layer.id] = { marker };
+}
+
+function removeMarkerFromMap(id) {
+  if (markers[id]) { markersLayer.removeLayer(markers[id].marker); delete markers[id]; }
+}
+
+function setMarkerVisibility(id, visible) {
+  if (!markers[id]) return;
+  if (visible) markersLayer.addLayer(markers[id].marker);
+  else markersLayer.removeLayer(markers[id].marker);
+}
+
+function setMarkerColor(id, color) {
+  if (!markers[id]) return;
+  markers[id].marker.setIcon(makeIcon(color));
+}
+
+function refreshMarkerPopup(layer) {
+  if (!markers[layer.id]) return;
+  markers[layer.id].marker.setPopupContent(buildPopupContent(layer));
+  markers[layer.id].marker.setIcon(makeIcon(layer.color));
+  markers[layer.id].marker.setLatLng([layer.lat, layer.lng]);
+  // Atualiza o rótulo com o novo nome
+  if (showLabels) {
+    markers[layer.id].marker.unbindTooltip();
+    markers[layer.id].marker.bindTooltip(layer.name, { permanent: true, direction: 'top', className: 'point-label', offset: [0, -30] });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// TREE RENDERING
+// ═══════════════════════════════════════════════════════════
+
+function getAllPointsInFolder(folderId, allLayers) {
+  const pts = [];
+  (function walk(pid) {
+    allLayers.filter(l => l.parentId === pid).forEach(l => {
+      if (l.type === 'point') pts.push(l);
+      else walk(l.id);
+    });
+  })(folderId);
+  return pts;
+}
+
+async function renderTree() {
+  const all = await db.layers.toArray();
+  all.sort((a, b) => (a.order || 0) - (b.order || 0));
+
+  const q = document.getElementById('searchInput').value.toLowerCase().trim();
+  const container = document.getElementById('layerTree');
+
+  if (all.length === 0) {
+    container.innerHTML = `<div class="empty-state"><i class="fas fa-water"></i>
+      <p>Nenhuma camada ainda.<br>Crie uma pasta ou adicione pontos.</p></div>`;
+    updateStats(all);
+    updateFolderSelects(all);
+    scheduleAutoSave();
+    return;
+  }
+
+  let html = '';
+  const roots = all.filter(l => !l.parentId);
+  for (const item of roots) html += buildItemHTML(item, all, 0, q);
+
+  container.innerHTML = html;
+  attachTreeEvents();
+  updateStats(all);
+  updateFolderSelects(all);
+  scheduleAutoSave();
+}
+
+function buildItemHTML(layer, all, depth, q) {
+  const isFolder = layer.type === 'folder';
+  const isSel    = selectedIds.has(layer.id);
+  const isExp    = expandedFolders.has(layer.id);
+  const children = all.filter(l => l.parentId === layer.id).sort((a,b)=>(a.order||0)-(b.order||0));
+
+  // Search
+  let sClass = '';
+  if (q) {
+    if (layer.name.toLowerCase().includes(q)) sClass = 's-match';
+    else if (!isFolder) sClass = 's-miss';
+  }
+
+  // Visibility
+  let vClass = 'vis-on', vIcon = 'fa-eye';
+  if (isFolder) {
+    const pts = getAllPointsInFolder(layer.id, all);
+    if (pts.length > 0) {
+      const visN = pts.filter(p => p.visible !== false).length;
+      if (visN === 0) { vClass = 'vis-off'; vIcon = 'fa-eye-slash'; }
+      else if (visN < pts.length) { vClass = 'vis-mix'; }
+    }
+  } else {
+    if (layer.visible === false) { vClass = 'vis-off'; vIcon = 'fa-eye-slash'; }
+  }
+
+  // Meta line
+  let meta = '';
+  if (isFolder) {
+    meta = `${children.length} item${children.length !== 1 ? 's' : ''}`;
+  } else {
+    const coord = `${(layer.lat||0).toFixed(4)}, ${(layer.lng||0).toFixed(4)}`;
+    if (layer.collectedAt) {
+      const [y, m] = layer.collectedAt.split('-');
+      const mn = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+      meta = `${mn[parseInt(m)-1]}/${y} · ${coord}`;
+    } else { meta = coord; }
+  }
+
+  const centerBtn = !isFolder
+    ? `<button class="li-act" onclick="event.stopPropagation();centerOnPoint(${layer.id})" title="Centralizar"><i class="fas fa-crosshairs"></i></button>` : '';
+  const expBtn = isFolder
+    ? `<button class="li-act" onclick="event.stopPropagation();toggleFolder(${layer.id})" title="${isExp?'Recolher':'Expandir'}"><i class="fas fa-${isExp?'chevron-down':'chevron-right'}"></i></button>` : '';
+
+  let html = `<div class="li ${isFolder?'li-folder':'li-point'} ${isSel?'sel':''} ${sClass}"
+    data-id="${layer.id}" data-type="${layer.type}" data-depth="${depth}" draggable="true">
+    <div class="li-drag"><i class="fas fa-grip-vertical"></i></div>
+    <div class="li-vis ${vClass}" onclick="event.stopPropagation();toggleVisibility(${layer.id})"><i class="fas ${vIcon}"></i></div>
+    <div class="li-icon ${isFolder?'fi':'pi'}" onclick="${isFolder?`event.stopPropagation();toggleFolder(${layer.id})`:`event.stopPropagation();centerOnPoint(${layer.id})`}">
+      <i class="fas ${isFolder?(isExp?'fa-folder-open':'fa-folder'):'fa-tint'}"></i>
+    </div>
+    <div class="li-dot" style="background:${esc(layer.color||'#0891b2')}"></div>
+    <div class="li-text">
+      <div class="lname" title="${esc(layer.name)}">${esc(layer.name)}</div>
+      <div class="lmeta">${esc(meta)}</div>
+    </div>
+    <div class="li-acts">
+      ${centerBtn}
+      ${expBtn}
+      <button class="li-act" onclick="event.stopPropagation();editLayerById(${layer.id})" title="Editar"><i class="fas fa-edit"></i></button>
+      <button class="li-act" onclick="event.stopPropagation();copyLayerById(${layer.id})" title="Copiar"><i class="fas fa-copy"></i></button>
+      <button class="li-act danger" onclick="event.stopPropagation();deleteLayerById(${layer.id})" title="Excluir"><i class="fas fa-trash"></i></button>
+    </div>
+  </div>`;
+
+  if (isFolder && isExp) {
+    for (const child of children) html += buildItemHTML(child, all, depth + 1, q);
+  }
+  return html;
+}
+
+// ═══════════════════════════════════════════════════════════
+// TREE EVENT ATTACHMENT
+// ═══════════════════════════════════════════════════════════
+
+function attachTreeEvents() {
+  document.querySelectorAll('.li').forEach(el => {
+    const id = parseInt(el.dataset.id);
+
+    // ── Click (select)
+    el.addEventListener('click', (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        selectedIds.has(id) ? selectedIds.delete(id) : selectedIds.add(id);
+        el.classList.toggle('sel', selectedIds.has(id));
+        lastSelectedId = id;
+      } else if (e.shiftKey && lastSelectedId != null) {
+        const items = Array.from(document.querySelectorAll('.li'));
+        const a = items.findIndex(x => parseInt(x.dataset.id) === lastSelectedId);
+        const b = items.findIndex(x => parseInt(x.dataset.id) === id);
+        selectedIds.clear();
+        items.forEach((x, i) => {
+          const inRange = i >= Math.min(a,b) && i <= Math.max(a,b);
+          x.classList.toggle('sel', inRange);
+          if (inRange) selectedIds.add(parseInt(x.dataset.id));
+        });
+      } else {
+        selectedIds.clear();
+        document.querySelectorAll('.li.sel').forEach(x => x.classList.remove('sel'));
+        selectedIds.add(id);
+        el.classList.add('sel');
+        lastSelectedId = id;
+      }
+      updateSelStat();
+    });
+
+    // ── Double click (edit)
+    el.addEventListener('dblclick', (e) => { e.stopPropagation(); editLayerById(id); });
+
+    // ── Right click (context menu)
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      if (!selectedIds.has(id)) {
+        selectedIds.clear();
+        document.querySelectorAll('.li.sel').forEach(x => x.classList.remove('sel'));
+        selectedIds.add(id); el.classList.add('sel');
+        lastSelectedId = id; updateSelStat();
+      }
+      ctxTarget = { type: 'layer', id, layerType: el.dataset.type };
+      showContextMenu(e.clientX, e.clientY);
+    });
+
+    // ── Drag
+    el.addEventListener('dragstart', (e) => {
+      dragSrcId = id;
+      e.dataTransfer.effectAllowed = 'move';
+      setTimeout(() => el.classList.add('dragging'), 0);
+    });
+    el.addEventListener('dragend', () => {
+      el.classList.remove('dragging');
+      document.querySelectorAll('.drag-top,.drag-bot,.drag-in').forEach(x =>
+        x.classList.remove('drag-top','drag-bot','drag-in'));
+    });
+    el.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (dragSrcId === id) return;
+      document.querySelectorAll('.drag-top,.drag-bot,.drag-in').forEach(x =>
+        x.classList.remove('drag-top','drag-bot','drag-in'));
+      const rect = el.getBoundingClientRect();
+      const rel  = (e.clientY - rect.top) / rect.height;
+      const isF  = el.dataset.type === 'folder';
+      if (rel < 0.3) el.classList.add('drag-top');
+      else if (isF && rel < 0.7) el.classList.add('drag-in');
+      else el.classList.add('drag-bot');
+    });
+    el.addEventListener('dragleave', () =>
+      el.classList.remove('drag-top','drag-bot','drag-in'));
+    el.addEventListener('drop', (e) => handleDrop(e, id));
+  });
+}
+
+async function handleDrop(e, targetId) {
+  e.preventDefault();
+  const el = document.querySelector(`.li[data-id="${targetId}"]`);
+  if (!el) return;
+  el.classList.remove('drag-top','drag-bot','drag-in');
+
+  if (!dragSrcId || dragSrcId === targetId) { dragSrcId = null; return; }
+
+  const src = await db.layers.get(dragSrcId);
+  const tgt = await db.layers.get(targetId);
+  if (!src || !tgt) { dragSrcId = null; return; }
+
+  // Prevent dropping inside own descendant
+  if (src.type === 'folder') {
+    const descs = await getAllDescendantIds(dragSrcId);
+    if (descs.includes(targetId)) {
+      showStatus('Não é possível mover pasta para dentro de si mesma', 'error');
+      dragSrcId = null; return;
+    }
+  }
+
+  pushUndo('move', { id: dragSrcId, parentId: src.parentId, order: src.order });
+
+  const rect = el.getBoundingClientRect();
+  const rel  = (e.clientY - rect.top) / rect.height;
+  const isF  = tgt.type === 'folder';
+
+  if (rel < 0.3) {
+    await db.layers.update(dragSrcId, { parentId: tgt.parentId, order: (tgt.order||0) - 0.5 });
+  } else if (isF && rel < 0.7) {
+    const kids = await db.layers.where('parentId').equals(tgt.id).toArray();
+    const mx = kids.length > 0 ? Math.max(...kids.map(k => k.order||0)) : 0;
+    await db.layers.update(dragSrcId, { parentId: tgt.id, order: mx + 10 });
+    expandedFolders.add(tgt.id);
+  } else {
+    await db.layers.update(dragSrcId, { parentId: tgt.parentId, order: (tgt.order||0) + 0.5 });
+  }
+
+  await normalizeOrders();
+  dragSrcId = null;
+  await renderTree();
+  showStatus('Item movido');
+}
+
+async function getAllDescendantIds(folderId) {
+  const all = await db.layers.toArray();
+  const ids = [];
+  (function walk(pid) {
+    all.filter(l => l.parentId === pid).forEach(l => {
+      ids.push(l.id);
+      if (l.type === 'folder') walk(l.id);
+    });
+  })(folderId);
+  return ids;
+}
+
+// ═══════════════════════════════════════════════════════════
+// FOLDER CRUD
+// ═══════════════════════════════════════════════════════════
+
+async function createFolder(name, parentId, color) {
+  if (!name || !name.trim()) { showStatus('Nome da pasta é obrigatório', 'error'); return null; }
+  const id = await db.layers.add({
+    name: name.trim(), type: 'folder',
+    parentId: parentId || null,
+    color: color || '#f59e0b',
+    visible: true, expanded: true,
+    order: (await getMaxOrder()) + 10,
+    createdAt: new Date()
+  });
+  expandedFolders.add(id);
+  pushUndo('create', { id });
+  await renderTree();
+  showStatus(`Pasta "${name.trim()}" criada`);
+  return id;
+}
+
+async function updateFolder(id, name, parentId, color) {
+  const before = await db.layers.get(id);
+  if (!before) return;
+  pushUndo('update', { id, before: { name: before.name, parentId: before.parentId, color: before.color } });
+  await db.layers.update(id, { name: name.trim() || before.name, parentId: parentId || null, color: color || before.color });
+  await renderTree();
+  showStatus('Pasta atualizada');
+}
+
+// ═══════════════════════════════════════════════════════════
+// POINT CRUD
+// ═══════════════════════════════════════════════════════════
+
+async function createPoint(name, lat, lng, color, parentId, desc, month) {
+  const id = await db.layers.add({
+    name: (name || '').trim() || `Ponto`,
+    type: 'point',
+    parentId: parentId || null,
+    lat, lng,
+    color: color || '#0891b2',
+    visible: true,
+    order: (await getMaxOrder()) + 10,
+    description: desc || '',
+    collectedAt: month || '',
+    createdAt: new Date()
+  });
+  const saved = await db.layers.get(id);
+  addMarkerToMap(saved);
+  pushUndo('create', { id });
+  return id;
+}
+
+// ═══════════════════════════════════════════════════════════
+// DELETE
+// ═══════════════════════════════════════════════════════════
+
+async function deleteLayerById(id, skipConfirm = false) {
+  const layer = await db.layers.get(id);
+  if (!layer) return;
+  const descs = layer.type === 'folder' ? await getAllDescendantIds(id) : [];
+  const total = 1 + descs.length;
+
+  if (!skipConfirm && total > 1) {
+    if (!confirm(`Excluir "${layer.name}" e seus ${descs.length} subitens?`)) return;
+  }
+
+  // Build undo snapshot
+  const snapshot = [{ ...layer }];
+  for (const did of descs) {
+    const d = await db.layers.get(did);
+    if (d) snapshot.push({ ...d });
+  }
+  pushUndo('delete', { layers: snapshot });
+
+  // Remove markers
+  if (layer.type === 'point') removeMarkerFromMap(id);
+  for (const did of descs) {
+    const d = await db.layers.get(did);
+    if (d && d.type === 'point') removeMarkerFromMap(did);
+  }
+
+  await db.layers.bulkDelete([id, ...descs]);
+  selectedIds.delete(id);
+  descs.forEach(d => selectedIds.delete(d));
+  expandedFolders.delete(id);
+
+  await renderTree();
+  showStatus(`"${layer.name}" excluído`);
+  await autoSave(); // Reflete exclusão imediatamente na pasta save
+}
+
+async function deleteSelectedLayers() {
+  if (selectedIds.size === 0) { showStatus('Nenhum item selecionado', 'info'); return; }
+  if (!confirm(`Excluir ${selectedIds.size} item(ns) selecionado(s)?`)) return;
+  const ids = [...selectedIds];
+  for (const id of ids) await deleteLayerById(id, true);
+  selectedIds.clear();
+  await renderTree();
+  showStatus(`${ids.length} item(ns) excluído(s)`);
+  await autoSave(); // Reflete exclusões imediatamente na pasta save
+}
+
+// ═══════════════════════════════════════════════════════════
+// VISIBILITY
+// ═══════════════════════════════════════════════════════════
+
+async function toggleVisibility(id) {
+  const layer = await db.layers.get(id);
+  if (!layer) return;
+
+  if (layer.type === 'folder') {
+    const all  = await db.layers.toArray();
+    const pts  = getAllPointsInFolder(id, all);
+    if (!pts.length) return;
+    const allVis = pts.every(p => p.visible !== false);
+    const newV   = !allVis;
+    for (const p of pts) {
+      await db.layers.update(p.id, { visible: newV });
+      setMarkerVisibility(p.id, newV);
+    }
+  } else {
+    const newV = layer.visible === false;
+    await db.layers.update(id, { visible: newV });
+    setMarkerVisibility(id, newV);
+  }
+  await renderTree();
+}
+
+async function setAllVisibility(visible) {
+  const pts = (await db.layers.toArray()).filter(l => l.type === 'point');
+  for (const p of pts) {
+    await db.layers.update(p.id, { visible });
+    setMarkerVisibility(p.id, visible);
+  }
+  await renderTree();
+  showStatus(visible ? 'Todos os pontos visíveis' : 'Todos os pontos ocultos');
+}
+
+// ═══════════════════════════════════════════════════════════
+// FOLDER EXPAND
+// ═══════════════════════════════════════════════════════════
+
+function toggleFolder(id) {
+  expandedFolders.has(id) ? expandedFolders.delete(id) : expandedFolders.add(id);
+  renderTree();
+}
+
+// ═══════════════════════════════════════════════════════════
+// CENTER ON POINT
+// ═══════════════════════════════════════════════════════════
+
+function centerOnPoint(id) {
+  const m = markers[id];
+  if (m) { map.setView(m.marker.getLatLng(), 15, { animate: true }); m.marker.openPopup(); }
+}
+
+// ═══════════════════════════════════════════════════════════
+// COPY / PASTE
+// ═══════════════════════════════════════════════════════════
+
+async function buildClipItem(layer, all) {
+  const item = { ...layer, id: undefined };
+  if (layer.type === 'folder') {
+    item.children = [];
+    const kids = all.filter(l => l.parentId === layer.id);
+    for (const k of kids) item.children.push(...await buildClipItem(k, all));
+  }
+  return [item];
+}
+
+async function copyLayerById(id) {
+  const layer = await db.layers.get(id);
+  if (!layer) return;
+  const all = await db.layers.toArray();
+  clipboard = await buildClipItem(layer, all);
+  document.getElementById('btnPaste').classList.add('lit');
+  showStatus(`"${layer.name}" copiado(a)`);
+}
+
+async function copySelectedLayers() {
+  if (!selectedIds.size) return;
+  const all = await db.layers.toArray();
+  clipboard = [];
+  for (const id of selectedIds) {
+    const l = all.find(x => x.id === id);
+    if (l) clipboard.push(...await buildClipItem(l, all));
+  }
+  document.getElementById('btnPaste').classList.add('lit');
+  showStatus(`${selectedIds.size} item(ns) copiado(s)`);
+}
+
+async function pasteItems(targetParentId) {
+  if (!clipboard.length) { showStatus('Área de transferência vazia', 'info'); return; }
+
+  async function pasteOne(item, parentId) {
+    const newId = await db.layers.add({
+      name: item.name, type: item.type,
+      parentId: parentId || null,
+      lat: item.lat, lng: item.lng,
+      color: item.color,
+      visible: item.visible !== false,
+      expanded: item.expanded !== false,
+      order: (await getMaxOrder()) + 10,
+      description: item.description || '',
+      collectedAt: item.collectedAt || '',
+      createdAt: new Date()
+    });
+    if (item.type === 'point') {
+      const saved = await db.layers.get(newId);
+      addMarkerToMap(saved);
+    } else {
+      expandedFolders.add(newId);
+      if (item.children) for (const c of item.children) await pasteOne(c, newId);
+    }
+    return newId;
+  }
+
+  let count = 0;
+  for (const item of clipboard) { await pasteOne(item, targetParentId); count++; }
+  await renderTree();
+  showStatus(`${count} item(ns) colado(s)`);
+}
+
+// ═══════════════════════════════════════════════════════════
+// UNDO
+// ═══════════════════════════════════════════════════════════
+
+function pushUndo(action, data) {
+  undoStack.push({ action, data });
+  if (undoStack.length > 30) undoStack.shift();
+}
+
+async function undo() {
+  if (!undoStack.length) { showStatus('Nada para desfazer', 'info'); return; }
+  const op = undoStack.pop();
+
+  if (op.action === 'create') {
+    await deleteLayerById(op.data.id, true);
+    showStatus('Criação desfeita');
+  } else if (op.action === 'delete') {
+    for (const l of op.data.layers) {
+      try {
+        await db.layers.put({ ...l });
+        if (l.type === 'point') { const s = await db.layers.get(l.id); if (s) addMarkerToMap(s); }
+        else expandedFolders.add(l.id);
+      } catch(e) { console.warn('Undo put conflict', e); }
+    }
+    await renderTree();
+    showStatus('Exclusão desfeita');
+  } else if (op.action === 'update') {
+    await db.layers.update(op.data.id, op.data.before);
+    const l = await db.layers.get(op.data.id);
+    if (l && l.type === 'point') { removeMarkerFromMap(op.data.id); addMarkerToMap(l); }
+    await renderTree();
+    showStatus('Alteração desfeita');
+  } else if (op.action === 'move') {
+    await db.layers.update(op.data.id, { parentId: op.data.parentId, order: op.data.order });
+    await renderTree();
+    showStatus('Movimentação desfeita');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// EDIT LAYER
+// ═══════════════════════════════════════════════════════════
+
+async function editLayerById(id) {
+  const layer = await db.layers.get(id);
+  if (!layer) return;
+  editingLayerId = id;
+
+  const all     = await db.layers.toArray();
+  const folders = all.filter(l => l.type === 'folder' && l.id !== id);
+  const opts    = `<option value="">— Raiz —</option>` +
+    folders.map(f => `<option value="${f.id}" ${f.id === layer.parentId ? 'selected' : ''}>${esc(f.name)}</option>`).join('');
+
+  document.getElementById('editModalTitle').textContent = layer.type === 'folder' ? 'Editar Pasta' : 'Editar Ponto';
+
+  let body = `
+    <div class="fg"><label>Nome *</label><input type="text" id="eName" value="${esc(layer.name)}"></div>
+    <div class="fg"><label>Pasta Pai</label><select id="eParent">${opts}</select></div>
+    <div class="fg"><label>Cor</label><input type="color" id="eColor" value="${layer.color||'#0891b2'}"></div>`;
+
+  if (layer.type === 'point') {
+    body += `
+    <div class="fg"><label>Latitude</label><input type="number" id="eLat" value="${layer.lat||''}" step="any" placeholder="-15.7938"></div>
+    <div class="fg"><label>Longitude</label><input type="number" id="eLng" value="${layer.lng||''}" step="any" placeholder="-47.8828"></div>
+    <div class="fg"><label>Mês/Período</label><input type="month" id="eMonth" value="${layer.collectedAt||''}"></div>
+    <div class="fg"><label>Descrição / Notas</label><textarea id="eDesc">${esc(layer.description||'')}</textarea></div>`;
+  }
+
+  document.getElementById('editModalBody').innerHTML = body;
+
+  // Enter key in name field
+  document.getElementById('eName').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('btnConfirmEdit').click();
+  });
+
+  openModal('editModal');
+  document.getElementById('eName').focus();
+}
+
+async function confirmEdit() {
+  if (!editingLayerId) return;
+  const layer = await db.layers.get(editingLayerId);
+  if (!layer) return;
+
+  pushUndo('update', { id: editingLayerId, before: { ...layer } });
+
+  const updates = {
+    name:     document.getElementById('eName')?.value?.trim() || layer.name,
+    parentId: document.getElementById('eParent')?.value ? parseInt(document.getElementById('eParent').value) : null,
+    color:    document.getElementById('eColor')?.value || layer.color
+  };
+
+  if (layer.type === 'point') {
+    const lat = parseFloat(document.getElementById('eLat')?.value);
+    const lng = parseFloat(document.getElementById('eLng')?.value);
+    if (!isNaN(lat)) updates.lat = lat;
+    if (!isNaN(lng)) updates.lng = lng;
+    updates.collectedAt = document.getElementById('eMonth')?.value || '';
+    updates.description = document.getElementById('eDesc')?.value || '';
+  }
+
+  await db.layers.update(editingLayerId, updates);
+
+  if (layer.type === 'point') {
+    const updated = await db.layers.get(editingLayerId);
+    removeMarkerFromMap(editingLayerId);
+    addMarkerToMap(updated);
+  }
+
+  closeModal('editModal');
+  await renderTree();
+  showStatus('Alterações salvas');
+}
+
+// ═══════════════════════════════════════════════════════════
+// COLOR PICKER
+// ═══════════════════════════════════════════════════════════
+
+function showColorPicker(id, multi = false) {
+  colorTargetId = id;
+  colorTargetType = multi ? 'selected' : 'single';
+
+  const cont = document.getElementById('cswatches');
+  cont.innerHTML = PRESET_COLORS.map(c =>
+    `<div class="cswatch" style="background:${c}" data-c="${c}" onclick="selectSwatch('${c}')"></div>`
+  ).join('');
+
+  openModal('colorModal');
+}
+
+function selectSwatch(color) {
+  document.querySelectorAll('.cswatch').forEach(el => el.classList.remove('active'));
+  document.querySelector(`.cswatch[data-c="${color}"]`)?.classList.add('active');
+  document.getElementById('colorCustom').value = color;
+}
+
+async function applyColor() {
+  const color = document.getElementById('colorCustom').value;
+
+  if (colorTargetType === 'selected') {
+    for (const id of selectedIds) {
+      await db.layers.update(id, { color });
+      setMarkerColor(id, color);
+    }
+    showStatus(`Cor aplicada a ${selectedIds.size} item(ns)`);
+  } else if (colorTargetId) {
+    const l = await db.layers.get(colorTargetId);
+    if (l) pushUndo('update', { id: colorTargetId, before: { color: l.color } });
+    await db.layers.update(colorTargetId, { color });
+    setMarkerColor(colorTargetId, color);
+    showStatus('Cor alterada');
+  }
+
+  closeModal('colorModal');
+  await renderTree();
+}
+
+// ═══════════════════════════════════════════════════════════
+// CONTEXT MENU
+// ═══════════════════════════════════════════════════════════
+
+function showContextMenu(x, y) {
+  const isLayer  = ctxTarget?.type === 'layer';
+  const isFolder = isLayer && ctxTarget.layerType === 'folder';
+  const isPoint  = isLayer && ctxTarget.layerType === 'point';
+  const hasCB    = clipboard.length > 0;
+
+  const h = id => document.getElementById(id)?.classList.add('hid');
+  const s = id => document.getElementById(id)?.classList.remove('hid');
+
+  // Reset
+  ['cx-newFolder','cx-newSub','cx-newPointHere','cx-copy','cx-paste',
+   'cx-edit','cx-color','cx-center','cx-delete','cx-sep-del'].forEach(s);
+
+  if (isPoint) h('cx-newFolder');
+  if (!isFolder) h('cx-newSub');
+  if (!isLayer)  h('cx-copy');
+  if (!hasCB)    h('cx-paste');
+  if (!isLayer)  { h('cx-edit'); h('cx-color'); h('cx-delete'); h('cx-sep-del'); }
+  if (!isPoint)  h('cx-center');
+
+  const menu = document.getElementById('ctx');
+  menu.style.left = x + 'px';
+  menu.style.top  = y + 'px';
+  menu.classList.add('show');
+
+  requestAnimationFrame(() => {
+    const r = menu.getBoundingClientRect();
+    if (r.right  > window.innerWidth)  menu.style.left = (x - r.width) + 'px';
+    if (r.bottom > window.innerHeight) menu.style.top  = (y - r.height) + 'px';
+  });
+}
+
+function hideCtx() { document.getElementById('ctx').classList.remove('show'); }
+
+// ═══════════════════════════════════════════════════════════
+// STATS & SELECTS
+// ═══════════════════════════════════════════════════════════
+
+function updateStats(all) {
+  document.getElementById('stFolders').textContent = all.filter(l => l.type === 'folder').length;
+  document.getElementById('stPoints').textContent  = all.filter(l => l.type === 'point').length;
+  updateSelStat();
+}
+
+function updateSelStat() {
+  document.getElementById('stSel').textContent = selectedIds.size;
+}
+
+async function updateFolderSelects(all) {
+  if (!all) all = await db.layers.toArray();
+  const folders = all.filter(l => l.type === 'folder');
+  const opts = `<option value="">— Raiz —</option>` +
+    folders.map(f => `<option value="${f.id}">${esc(f.name)}</option>`).join('');
+  document.getElementById('fldFolder').innerHTML = opts;
+}
+
+// ═══════════════════════════════════════════════════════════
+// FOLDER MODAL
+// ═══════════════════════════════════════════════════════════
+
+async function openFolderModal(parentId = null, editId = null) {
+  folderModalMode = editId ? 'edit' : 'create';
+  document.getElementById('folderModalTitle').textContent = editId ? 'Editar Pasta' : 'Nova Pasta';
+
+  if (editId) {
+    editingLayerId = editId;
+    const l = await db.layers.get(editId);
+    document.getElementById('mFolderName').value  = l?.name || '';
+    document.getElementById('mFolderColor').value = l?.color || '#f59e0b';
+  } else {
+    editingLayerId = null;
+    document.getElementById('mFolderName').value  = '';
+    document.getElementById('mFolderColor').value = '#f59e0b';
+  }
+
+  // Populate parent select
+  const all = await db.layers.toArray();
+  const folders = all.filter(l => l.type === 'folder' && l.id !== editId);
+  document.getElementById('mFolderParent').innerHTML =
+    `<option value="">— Raiz —</option>` +
+    folders.map(f => `<option value="${f.id}" ${f.id === parentId ? 'selected' : ''}>${esc(f.name)}</option>`).join('');
+
+  openModal('folderModal');
+  document.getElementById('mFolderName').focus();
+}
+
+// ═══════════════════════════════════════════════════════════
+// LABELS
+// ═══════════════════════════════════════════════════════════
+
+function toggleLabels() {
+  showLabels = !showLabels;
+  document.getElementById('btnLabels').classList.toggle('on', showLabels);
+
+  Object.entries(markers).forEach(([id, { marker }]) => {
+    if (showLabels) {
+      db.layers.get(parseInt(id)).then(l => {
+        if (l) {
+          marker.unbindTooltip();
+          marker.bindTooltip(l.name, { permanent: true, direction: 'top', className: 'point-label', offset: [0, -30] });
+        }
+      });
+    } else {
+      marker.unbindTooltip();
+    }
+  });
+  showStatus(showLabels ? 'Rótulos ativados' : 'Rótulos desativados');
+}
+
+// ═══════════════════════════════════════════════════════════
+// MAP ADD FROM CLICK
+// ═══════════════════════════════════════════════════════════
+
+async function promptAddPointFromMap(latlng) {
+  const name = prompt(`Adicionar ponto em:\nLat: ${latlng.lat.toFixed(5)}\nLng: ${latlng.lng.toFixed(5)}\n\nNome do ponto:`, 'Novo Ponto');
+  if (name === null) return;
+
+  const pId = document.getElementById('fldFolder').value
+    ? parseInt(document.getElementById('fldFolder').value) : null;
+
+  await createPoint(
+    name || 'Novo Ponto',
+    latlng.lat, latlng.lng,
+    document.getElementById('fldColor').value || '#0891b2',
+    pId,
+    '',
+    document.getElementById('fldMonth').value || ''
+  );
+  await renderTree();
+  showStatus(`Ponto "${name || 'Novo Ponto'}" adicionado`);
+}
+
+// ═══════════════════════════════════════════════════════════
+// ADD FROM FORM (BATCH)
+// ═══════════════════════════════════════════════════════════
+
+async function addPointsFromForm() {
+  const base  = document.getElementById('fldName').value.trim();
+  const fldId = document.getElementById('fldFolder').value || null;
+  const month = document.getElementById('fldMonth').value;
+  const color = document.getElementById('fldColor').value;
+  const raw   = document.getElementById('fldCoords').value.trim();
+
+  if (!raw) { showStatus('Insira ao menos uma coordenada', 'error'); return; }
+
+  const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+  let added = 0, errors = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const parts = lines[i].split(/[\s,;]+/).filter(Boolean);
+    if (parts.length < 2) { errors++; continue; }
+    const lat = parseFloat(parts[0]);
+    const lng = parseFloat(parts[1]);
+    if (isNaN(lat) || isNaN(lng)) { errors++; continue; }
+    const nm = base ? (lines.length > 1 ? `${base} ${i+1}` : base) : `Ponto`;
+    await createPoint(nm, lat, lng, color, fldId ? parseInt(fldId) : null, '', month);
+    added++;
+  }
+
+  await renderTree();
+  if (added > 0) showStatus(`${added} ponto(s) adicionado(s)${errors ? ` (${errors} inválido(s) ignorado(s))` : ''}`);
+  else showStatus('Nenhuma coordenada válida', 'error');
+}
+
+// ═══════════════════════════════════════════════════════════
+// FIT MAP
+// ═══════════════════════════════════════════════════════════
+
+function fitAllPoints() {
+  const pts = Object.values(markers).map(m => m.marker.getLatLng());
+  if (!pts.length) { showStatus('Nenhum ponto para enquadrar', 'info'); return; }
+  map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], animate: true });
+}
+
+// ═══════════════════════════════════════════════════════════
+// BACKUP / IMPORT
+// ═══════════════════════════════════════════════════════════
+
+async function saveBackup() {
+  const all = await db.layers.toArray();
+  const blob = new Blob([JSON.stringify({ version:'2.0', app:'AquaMap', exportDate: new Date().toISOString(), layers: all }, null, 2)],
+    { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `aquamap-${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+  showStatus('Backup salvo com sucesso');
+}
+
+async function saveFileToArquivos(file) {
+  if (!saveDirHandle) return;
+  try {
+    // Cria (ou obtém) a subpasta "Arquivos" dentro da pasta save
+    let arquivosDir;
+    try {
+      arquivosDir = await saveDirHandle.getDirectoryHandle('Arquivos', { create: true });
+    } catch (e) {
+      console.warn('[AquaMap] Não foi possível criar subpasta Arquivos:', e);
+      return;
+    }
+    // Lê o conteúdo do arquivo
+    const arrayBuffer = await file.arrayBuffer();
+    // Salva com o nome original do arquivo
+    const fileHandle = await arquivosDir.getFileHandle(file.name, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(arrayBuffer);
+    await writable.close();
+    showStatus(`Arquivo "${file.name}" salvo em Arquivos/`, 'info');
+  } catch (e) {
+    if (e.name === 'NotAllowedError') {
+      try {
+        const perm = await saveDirHandle.requestPermission({ mode: 'readwrite' });
+        if (perm === 'granted') await saveFileToArquivos(file);
+      } catch { /* silencioso */ }
+    } else {
+      console.warn('[AquaMap] Erro ao salvar em Arquivos:', e);
+    }
+  }
+}
+
+async function handleImport(file) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (ext === 'json') await importJSON(file);
+  else if (ext === 'kml') await importKML(file);
+  else if (ext === 'kmz') await importKMZ(file);
+  else { showStatus('Use .json, .kml ou .kmz', 'error'); return; }
+  // Copia o arquivo importado para Pontos conferencia\save\Arquivos
+  await saveFileToArquivos(file);
+}
+
+async function importJSON(file) {
+  const text = await file.text();
+  let data;
+  try { data = JSON.parse(text); } catch { showStatus('JSON inválido', 'error'); return; }
+  const layers = data.layers || [];
+  if (!layers.length) { showStatus('Arquivo sem camadas', 'error'); return; }
+  if (!confirm(`Importar ${layers.length} camada(s)? Será adicionado aos dados existentes.`)) return;
+
+  // Sort: parents first
+  const sorted = [...layers].sort((a,b) => (!a.parentId && b.parentId) ? -1 : (a.parentId && !b.parentId) ? 1 : 0);
+  const idMap = {};
+  let mo = await getMaxOrder();
+
+  for (const l of sorted) {
+    const oldId = l.id;
+    const newId = await db.layers.add({
+      name: l.name||'Sem nome', type: l.type||'point',
+      parentId: l.parentId ? (idMap[l.parentId] || null) : null,
+      lat: l.lat||0, lng: l.lng||0,
+      color: l.color||'#0891b2',
+      visible: l.visible !== false,
+      expanded: l.expanded !== false,
+      order: (mo += 10),
+      description: l.description||'',
+      collectedAt: l.collectedAt||'',
+      createdAt: new Date()
+    });
+    idMap[oldId] = newId;
+    if (l.type === 'point') { const s = await db.layers.get(newId); addMarkerToMap(s); }
+    else expandedFolders.add(newId);
+  }
+  await renderTree();
+  showStatus(`${layers.length} camada(s) importada(s)`);
+}
+
+async function importKML(file) {
+  const text = await file.text();
+  await importKMLText(text, file.name);
+}
+
+async function importKMZ(file) {
+  try {
+    showStatus('Descompactando KMZ…', 'info');
+    const zip = await JSZip.loadAsync(file);
+    const kmlEntry = Object.values(zip.files).find(f =>
+      !f.dir && f.name.toLowerCase().endsWith('.kml'));
+    if (!kmlEntry) { showStatus('Nenhum KML encontrado dentro do KMZ', 'error'); return; }
+    const text = await kmlEntry.async('text');
+    await importKMLText(text, file.name);
+  } catch (e) {
+    showStatus('Erro ao ler KMZ: ' + e.message, 'error');
+  }
+}
+
+async function importKMLText(text, sourceName) {
+  const doc  = new DOMParser().parseFromString(text, 'application/xml');
+  const parseErr = doc.querySelector('parsererror');
+  if (parseErr) { showStatus('KML inválido ou corrompido', 'error'); return; }
+  const pms  = doc.getElementsByTagName('Placemark');
+  if (!pms.length) { showStatus('Nenhum ponto no KML', 'error'); return; }
+  if (!confirm(`Importar ${pms.length} ponto(s) de "${sourceName}"?`)) return;
+
+  // Se mais de 1 ponto: cria pasta com o nome do arquivo (sem extensão)
+  let parentFolderId = null;
+  if (pms.length > 1) {
+    const folderName = sourceName.replace(/\.(kmz|kml|json)$/i, '').trim() || sourceName;
+    parentFolderId = await db.layers.add({
+      name: folderName,
+      type: 'folder',
+      parentId: null,
+      color: '#f59e0b',
+      visible: true,
+      expanded: true,
+      order: (await getMaxOrder()) + 10,
+      createdAt: new Date()
+    });
+    expandedFolders.add(parentFolderId);
+    pushUndo('create', { id: parentFolderId });
+  }
+
+  let count = 0;
+  for (const pm of pms) {
+    const name   = pm.getElementsByTagName('name')[0]?.textContent?.trim() || `Ponto ${count+1}`;
+    const coords = pm.getElementsByTagName('coordinates')[0]?.textContent?.trim();
+    if (coords) {
+      const p = coords.split(/[\s,]+/).filter(Boolean);
+      const lng = parseFloat(p[0]), lat = parseFloat(p[1]);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        await createPoint(name, lat, lng, '#0891b2', parentFolderId, '', '');
+        count++;
+      }
+    }
+  }
+  await renderTree();
+  const msg = parentFolderId
+    ? `${count} ponto(s) importado(s) na pasta "${sourceName.replace(/\.(kmz|kml|json)$/i,'')}"` 
+    : `${count} ponto(s) importado(s) de ${sourceName}`;
+  showStatus(msg);
+}
+
+// ═══════════════════════════════════════════════════════════
+// EVENT LISTENERS
+// ═══════════════════════════════════════════════════════════
+
+function setupEvents() {
+  // Topbar
+  document.getElementById('btnUndo').addEventListener('click', undo);
+  document.getElementById('btnLabels').addEventListener('click', toggleLabels);
+  document.getElementById('btnSelAll').addEventListener('click', async () => {
+    const all = await db.layers.toArray();
+    selectedIds.clear(); all.forEach(l => selectedIds.add(l.id));
+    await renderTree();
+  });
+  document.getElementById('btnShowAll').addEventListener('click', () => setAllVisibility(true));
+  document.getElementById('btnHideAll').addEventListener('click', () => setAllVisibility(false));
+  document.getElementById('btnBackup').addEventListener('click', saveBackup);
+  document.getElementById('btnImportBtn').addEventListener('click', () => document.getElementById('importFileInput').click());
+  document.getElementById('importFileInput').addEventListener('change', (e) => {
+    if (e.target.files[0]) { handleImport(e.target.files[0]); e.target.value = ''; }
+  });
+  document.getElementById('btnSaveFolder').addEventListener('click', selectSaveFolder);
+
+  // Sidebar
+  document.getElementById('btnNewFolder').addEventListener('click', () => {
+    const pid = selectedIds.size === 1 ? [...selectedIds][0] : null;
+    openFolderModal(pid);
+  });
+  document.getElementById('btnNewPoint').addEventListener('click', () => {
+    document.getElementById('addForm').scrollIntoView({ behavior: 'smooth' });
+    document.getElementById('fldCoords').focus();
+  });
+  document.getElementById('btnCopy').addEventListener('click', copySelectedLayers);
+  document.getElementById('btnPaste').addEventListener('click', () => {
+    const pid = selectedIds.size === 1 ? [...selectedIds][0] : null;
+    pasteItems(pid);
+  });
+  document.getElementById('btnDelSel').addEventListener('click', deleteSelectedLayers);
+
+  // Form
+  document.getElementById('btnAddPoints').addEventListener('click', addPointsFromForm);
+  document.getElementById('btnClearForm').addEventListener('click', () => {
+    document.getElementById('fldName').value = '';
+    document.getElementById('fldCoords').value = '';
+    document.getElementById('fldMonth').value = '';
+    showStatus('Formulário limpo', 'info');
+  });
+
+  // Map controls
+  document.getElementById('btnCenter').addEventListener('click', () =>
+    map.setView([-15.793889, -47.882778], 4, { animate: true }));
+  document.getElementById('btnFitAll').addEventListener('click', fitAllPoints);
+
+  // Modal: folder
+  document.getElementById('btnConfirmFolder').addEventListener('click', async () => {
+    const name  = document.getElementById('mFolderName').value;
+    const pid   = document.getElementById('mFolderParent').value || null;
+    const color = document.getElementById('mFolderColor').value;
+    if (folderModalMode === 'edit' && editingLayerId) {
+      await updateFolder(editingLayerId, name, pid ? parseInt(pid) : null, color);
+    } else {
+      await createFolder(name, pid ? parseInt(pid) : null, color);
+    }
+    closeModal('folderModal');
+  });
+  document.getElementById('mFolderName').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('btnConfirmFolder').click();
+  });
+
+  // Modal: edit
+  document.getElementById('btnConfirmEdit').addEventListener('click', confirmEdit);
+  document.getElementById('editModalBody').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.id === 'eName') confirmEdit();
+  });
+
+  // Modal: color
+  document.getElementById('colorCustom').addEventListener('input', () => {
+    document.querySelectorAll('.cswatch').forEach(el => el.classList.remove('active'));
+  });
+  document.getElementById('btnApplyColor').addEventListener('click', applyColor);
+
+  // Close modals via [data-close]
+  document.querySelectorAll('[data-close]').forEach(btn =>
+    btn.addEventListener('click', () => closeModal(btn.dataset.close)));
+  document.querySelectorAll('.moverlay').forEach(ov =>
+    ov.addEventListener('click', (e) => { if (e.target === ov) closeModal(ov.id); }));
+
+  // Context menu actions
+  document.getElementById('cx-newFolder').addEventListener('click', () => {
+    openFolderModal(ctxTarget?.id); hideCtx();
+  });
+  document.getElementById('cx-newSub').addEventListener('click', () => {
+    openFolderModal(ctxTarget?.id); hideCtx();
+  });
+  document.getElementById('cx-newPointHere').addEventListener('click', () => {
+    if (ctxTarget?.id) document.getElementById('fldFolder').value = ctxTarget.id;
+    document.getElementById('addForm').scrollIntoView({ behavior: 'smooth' });
+    document.getElementById('fldCoords').focus();
+    hideCtx();
+  });
+  document.getElementById('cx-copy').addEventListener('click', () => {
+    if (selectedIds.size > 1) copySelectedLayers();
+    else if (ctxTarget?.id) copyLayerById(ctxTarget.id);
+    hideCtx();
+  });
+  document.getElementById('cx-paste').addEventListener('click', () => {
+    pasteItems(ctxTarget?.id || null); hideCtx();
+  });
+  document.getElementById('cx-edit').addEventListener('click', () => {
+    if (ctxTarget?.id) editLayerById(ctxTarget.id); hideCtx();
+  });
+  document.getElementById('cx-color').addEventListener('click', () => {
+    if (ctxTarget?.id) showColorPicker(ctxTarget.id, selectedIds.size > 1); hideCtx();
+  });
+  document.getElementById('cx-center').addEventListener('click', () => {
+    if (ctxTarget?.id) centerOnPoint(ctxTarget.id); hideCtx();
+  });
+  document.getElementById('cx-delete').addEventListener('click', () => {
+    if (selectedIds.size > 1) deleteSelectedLayers();
+    else if (ctxTarget?.id) deleteLayerById(ctxTarget.id);
+    hideCtx();
+  });
+
+  // Right-click on tree empty area
+  document.getElementById('layerTree').addEventListener('contextmenu', (e) => {
+    if (e.target === document.getElementById('layerTree') ||
+        e.target.classList.contains('empty-state') ||
+        e.target.closest('.empty-state')) {
+      e.preventDefault();
+      ctxTarget = { type: 'empty', id: null };
+      showContextMenu(e.clientX, e.clientY);
+    }
+  });
+
+  // Dismiss context menu
+  document.addEventListener('click', (e) => {
+    if (!document.getElementById('ctx').contains(e.target)) hideCtx();
+  });
+
+  // Search
+  document.getElementById('searchInput').addEventListener('input', () => renderTree());
+
+  // Deselect on workspace click (not on items)
+  document.getElementById('layerTree').addEventListener('click', (e) => {
+    if (e.target === document.getElementById('layerTree') ||
+        e.target.classList.contains('empty-state')) {
+      selectedIds.clear();
+      document.querySelectorAll('.li.sel').forEach(x => x.classList.remove('sel'));
+      updateSelStat();
+    }
+  });
+
+  // Keyboard shortcuts
+  document.addEventListener('keydown', async (e) => {
+    const inField = e.target.matches('input,textarea,select');
+    if (inField && e.key !== 'Escape') return;
+
+    if ((e.ctrlKey||e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); }
+    if ((e.ctrlKey||e.metaKey) && e.key === 'c' && selectedIds.size) { e.preventDefault(); copySelectedLayers(); }
+    if ((e.ctrlKey||e.metaKey) && e.key === 'v') { e.preventDefault(); pasteItems(null); }
+    if ((e.ctrlKey||e.metaKey) && e.key === 'a') {
+      if (!inField) {
+        e.preventDefault();
+        const all = await db.layers.toArray();
+        selectedIds.clear(); all.forEach(l => selectedIds.add(l.id));
+        await renderTree();
+      }
+    }
+    if (e.key === 'Delete' && selectedIds.size) { e.preventDefault(); deleteSelectedLayers(); }
+    if (e.key === 'Escape') {
+      selectedIds.clear();
+      hideCtx();
+      document.querySelectorAll('.moverlay.show').forEach(m => m.classList.remove('show'));
+      await renderTree();
+    }
+    if (e.key === 'F2') { e.preventDefault(); document.getElementById('searchInput').focus(); }
+    if ((e.ctrlKey||e.metaKey) && e.shiftKey && e.key === 'F') { e.preventDefault(); openFolderModal(); }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// PASTA DE SAVE AUTOMÁTICO
+// ═══════════════════════════════════════════════════════════
+
+async function selectSaveFolder() {
+  if (!('showDirectoryPicker' in window)) {
+    showStatus('Seu navegador não suporta seleção de pasta (use Chrome/Edge)', 'error');
+    return;
+  }
+  try {
+    saveDirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+    updateSaveFolderUI();
+    showStatus(`Save automático em: ${saveDirHandle.name}`, 'info');
+    await autoSave();
+  } catch (e) {
+    if (e.name !== 'AbortError') showStatus('Erro ao selecionar pasta: ' + e.message, 'error');
+  }
+}
+
+function updateSaveFolderUI() {
+  const btn = document.getElementById('btnSaveFolder');
+  const lbl = document.getElementById('saveFolderLabel');
+  if (saveDirHandle) {
+    btn.classList.add('on');
+    lbl.textContent = saveDirHandle.name;
+    btn.title = `Save automático em: ${saveDirHandle.name} — clique para trocar`;
+  } else {
+    btn.classList.remove('on');
+    lbl.textContent = 'Pasta Save';
+    btn.title = 'Selecionar pasta de save automático';
+  }
+}
+
+async function autoSave() {
+  if (!saveDirHandle) return;
+  try {
+    const all = await db.layers.toArray();
+    const content = JSON.stringify(
+      { version: '2.0', app: 'AquaMap', exportDate: new Date().toISOString(), layers: all },
+      null, 2
+    );
+    const fileName = 'aquamap-pontos.json';
+    const fileHandle = await saveDirHandle.getFileHandle(fileName, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(content);
+    await writable.close();
+  } catch (e) {
+    // Permission may have expired — re-request
+    if (e.name === 'NotAllowedError') {
+      try {
+        const perm = await saveDirHandle.requestPermission({ mode: 'readwrite' });
+        if (perm === 'granted') await autoSave();
+        else { saveDirHandle = null; updateSaveFolderUI(); showStatus('Permissão negada — pasta de save removida', 'error'); }
+      } catch { saveDirHandle = null; updateSaveFolderUI(); }
+    } else {
+      console.warn('[AquaMap] Auto-save error:', e);
+    }
+  }
+}
+
+function scheduleAutoSave() {
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(autoSave, 600);
+}
+
+// ═══════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════
+
+async function init() {
+  try {
+    await initDB();
+    initMap();
+
+    // Load existing data
+    const all = await db.layers.toArray();
+    for (const l of all) {
+      if (l.type === 'point')  addMarkerToMap(l);
+      if (l.type === 'folder' && l.expanded !== false) expandedFolders.add(l.id);
+    }
+
+    await renderTree();
+    setupEvents();
+    // Rótulos ativos por padrão
+    document.getElementById('btnLabels').classList.add('on');
+    showStatus('AquaMap pronto');
+  } catch (err) {
+    console.error('[AquaMap] Init error:', err);
+    alert('Erro ao inicializar: ' + err.message);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
