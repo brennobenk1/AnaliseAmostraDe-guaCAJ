@@ -655,7 +655,6 @@ function refreshMarkerPopup(layer) {
   } else if (obj.type === 'shape') {
     obj.marker.setPopupContent(buildShapePopup(layer));
     obj.marker.setStyle({ color: layer.color, fillColor: layer.color, fillOpacity: layer.opacity || 0.5 });
-    // recria o shape se geojson mudou? manter simples por enquanto
   }
 }
 
@@ -988,11 +987,9 @@ async function createShape(name, geojsonStr, color, opacity, parentId, desc, mon
   let geojson;
   try {
     geojson = JSON.parse(geojsonStr);
-    // Garantir que é um GeoJSON Feature ou Geometry
     if (geojson.type === 'Polygon' || geojson.type === 'MultiPolygon' || geojson.type === 'LineString' || geojson.type === 'MultiLineString') {
       geojson = { type: 'Feature', geometry: geojson, properties: {} };
     } else if (geojson.type === 'FeatureCollection' && geojson.features && geojson.features.length > 0) {
-      // usa a primeira feature
       geojson = geojson.features[0];
     } else if (geojson.type !== 'Feature') {
       throw new Error('Formato GeoJSON inválido');
@@ -1037,7 +1034,6 @@ async function deleteLayerById(id, skipConfirm = false) {
     if (!confirm(`Excluir "${layer.name}" e seus ${descs.length} subitens?`)) return;
   }
 
-  // Build undo snapshot
   const snapshot = [{ ...layer }];
   for (const did of descs) {
     const d = await db.layers.get(did);
@@ -1045,7 +1041,6 @@ async function deleteLayerById(id, skipConfirm = false) {
   }
   pushUndo('delete', { layers: snapshot });
 
-  // Remove markers
   removeMarkerFromMap(id);
   for (const did of descs) {
     const d = await db.layers.get(did);
@@ -1059,7 +1054,7 @@ async function deleteLayerById(id, skipConfirm = false) {
 
   await renderTree();
   showStatus(`"${layer.name}" excluído`);
-  await autoSave(); // Reflete exclusão imediatamente na pasta save
+  await autoSave();
 }
 
 async function deleteSelectedLayers() {
@@ -1070,7 +1065,7 @@ async function deleteSelectedLayers() {
   selectedIds.clear();
   await renderTree();
   showStatus(`${ids.length} item(ns) excluído(s)`);
-  await autoSave(); // Reflete exclusões imediatamente na pasta save
+  await autoSave();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1286,7 +1281,6 @@ async function editLayerById(id) {
 
   document.getElementById('editModalBody').innerHTML = body;
 
-  // Opacity live update
   const opacityInput = document.getElementById('eOpacity');
   const opacityVal   = document.getElementById('eOpacityVal');
   if (opacityInput && opacityVal) {
@@ -1295,7 +1289,6 @@ async function editLayerById(id) {
     });
   }
 
-  // Enter key in name field
   document.getElementById('eName').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') document.getElementById('btnConfirmEdit').click();
   });
@@ -1409,7 +1402,6 @@ function showContextMenu(x, y) {
   const h = id => document.getElementById(id)?.classList.add('hid');
   const s = id => document.getElementById(id)?.classList.remove('hid');
 
-  // Reset
   ['cx-newFolder','cx-newSub','cx-newPointHere','cx-newShapeHere','cx-copy','cx-paste',
    'cx-edit','cx-color','cx-center','cx-delete','cx-sep-del'].forEach(s);
 
@@ -1418,7 +1410,7 @@ function showContextMenu(x, y) {
   if (!hasCB)    h('cx-paste');
   if (!isLayer)  { h('cx-edit'); h('cx-color'); h('cx-delete'); h('cx-sep-del'); }
   if (!isPoint && !isShape) h('cx-center');
-  if (isShape) h('cx-newPointHere'); // esconde new point se for shape
+  if (isShape) h('cx-newPointHere');
 
   const menu = document.getElementById('ctx');
   menu.style.left = x + 'px';
@@ -1477,7 +1469,6 @@ async function openFolderModal(parentId = null, editId = null) {
     document.getElementById('mFolderColor').value = '#f59e0b';
   }
 
-  // Populate parent select
   const all = await db.layers.toArray();
   const folders = all.filter(l => l.type === 'folder' && l.id !== editId);
   document.getElementById('mFolderParent').innerHTML =
@@ -1509,7 +1500,6 @@ function toggleLabels() {
         marker.unbindTooltip();
       }
     }
-    // shapes não têm tooltip permanente
   });
   showStatus(showLabels ? 'Rótulos ativados' : 'Rótulos desativados');
 }
@@ -1623,7 +1613,6 @@ async function saveBackup() {
 }
 
 function generateKMZ(layer) {
-  // Gera um arquivo KMZ (ZIP contendo KML) para um ponto ou shape
   let kml = '';
   if (layer.type === 'point') {
     kml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -1640,7 +1629,6 @@ function generateKMZ(layer) {
   </Document>
 </kml>`;
   } else if (layer.type === 'shape' && layer.geojson) {
-    // Converte GeoJSON para KML simplificado (apenas Polygon/LineString)
     try {
       const gj = typeof layer.geojson === 'string' ? JSON.parse(layer.geojson) : layer.geojson;
       const geom = gj.geometry || gj;
@@ -1666,7 +1654,6 @@ function generateKMZ(layer) {
   </Document>
 </kml>`;
     } catch(e) {
-      console.warn('Erro ao gerar KMZ para shape', e);
       return null;
     }
   } else {
@@ -1778,7 +1765,6 @@ async function importKMLText(text, sourceName) {
   const pms  = doc.getElementsByTagName('Placemark');
   if (!pms.length) { showStatus('Nenhum elemento no KML', 'error'); return; }
 
-  // Detecta se há shapes (Polygon, LineString) ou apenas pontos
   let hasShapes = false;
   for (const pm of pms) {
     if (pm.getElementsByTagName('Polygon').length > 0 || pm.getElementsByTagName('LineString').length > 0) {
@@ -1813,14 +1799,13 @@ async function importKMLText(text, sourceName) {
     const lineString = pm.getElementsByTagName('LineString')[0];
 
     if (polygon || lineString) {
-      // Importar como shape
       const geomEl = polygon || lineString;
       const geomType = polygon ? 'Polygon' : 'LineString';
       const outerCoords = geomEl.getElementsByTagName('coordinates')[0]?.textContent?.trim();
       if (outerCoords) {
         const points = outerCoords.split(/\s+/).filter(Boolean).map(p => {
           const [lng, lat] = p.split(',').map(Number);
-          return [lat, lng]; // GeoJSON: [lat, lng]
+          return [lat, lng];
         });
         if (points.length >= 3 || geomType === 'LineString') {
           const geojson = geomType === 'Polygon'
@@ -1837,7 +1822,6 @@ async function importKMLText(text, sourceName) {
         }
       }
     } else if (coords) {
-      // Ponto
       const p = coords.split(/[\s,]+/).filter(Boolean);
       const lng = parseFloat(p[0]), lat = parseFloat(p[1]);
       if (!isNaN(lat) && !isNaN(lng)) {
@@ -1854,241 +1838,8 @@ async function importKMLText(text, sourceName) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// EVENT LISTENERS
-// ═══════════════════════════════════════════════════════════
-
-function setupEvents() {
-  // Topbar
-  document.getElementById('btnUndo').addEventListener('click', undo);
-  document.getElementById('btnLabels').addEventListener('click', toggleLabels);
-  document.getElementById('btnSelAll').addEventListener('click', async () => {
-    const all = await db.layers.toArray();
-    selectedIds.clear(); all.forEach(l => selectedIds.add(l.id));
-    await renderTree();
-  });
-  document.getElementById('btnShowAll').addEventListener('click', () => setAllVisibility(true));
-  document.getElementById('btnHideAll').addEventListener('click', () => setAllVisibility(false));
-  document.getElementById('btnBackup').addEventListener('click', saveBackup);
-  document.getElementById('btnImportBtn').addEventListener('click', () => document.getElementById('importFileInput').click());
-  document.getElementById('importFileInput').addEventListener('change', (e) => {
-    if (e.target.files[0]) { handleImport(e.target.files[0]); e.target.value = ''; }
-  });
-  document.getElementById('btnSaveFolder').addEventListener('click', selectSaveFolder);
-
-  // Sidebar
-  document.getElementById('btnNewFolder').addEventListener('click', () => {
-    const pid = selectedIds.size === 1 ? [...selectedIds][0] : null;
-    openFolderModal(pid);
-  });
-  document.getElementById('btnNewPoint').addEventListener('click', () => {
-    document.getElementById('addForm').scrollIntoView({ behavior: 'smooth' });
-    document.getElementById('fldCoords').focus();
-  });
-  document.getElementById('btnNewShape').addEventListener('click', () => {
-    document.getElementById('addForm').scrollIntoView({ behavior: 'smooth' });
-    document.getElementById('fldShapeCoords').focus();
-  });
-  document.getElementById('btnCopy').addEventListener('click', copySelectedLayers);
-  document.getElementById('btnPaste').addEventListener('click', () => {
-    const pid = selectedIds.size === 1 ? [...selectedIds][0] : null;
-    pasteItems(pid);
-  });
-  document.getElementById('btnDelSel').addEventListener('click', deleteSelectedLayers);
-
-  // Form
-  document.getElementById('btnAddPoints').addEventListener('click', addPointsFromForm);
-  document.getElementById('btnAddShape').addEventListener('click', addShapeFromForm);
-  document.getElementById('btnClearForm').addEventListener('click', () => {
-    document.getElementById('fldName').value = '';
-    document.getElementById('fldCoords').value = '';
-    document.getElementById('fldMonth').value = '';
-    document.getElementById('fldShapeName').value = '';
-    document.getElementById('fldShapeCoords').value = '';
-    showStatus('Formulário limpo', 'info');
-  });
-
-  // Shape opacity slider
-  const opacitySlider = document.getElementById('fldShapeOpacity');
-  const opacityVal    = document.getElementById('opacityValue');
-  if (opacitySlider && opacityVal) {
-    opacitySlider.addEventListener('input', () => {
-      opacityVal.textContent = opacitySlider.value;
-    });
-  }
-
-  // Map controls
-  document.getElementById('btnCenter').addEventListener('click', () =>
-    map.setView([-15.793889, -47.882778], 4, { animate: true }));
-  document.getElementById('btnFitAll').addEventListener('click', fitAllPoints);
-
-  // Modal: folder
-  document.getElementById('btnConfirmFolder').addEventListener('click', async () => {
-    const name  = document.getElementById('mFolderName').value;
-    const pid   = document.getElementById('mFolderParent').value || null;
-    const color = document.getElementById('mFolderColor').value;
-    if (folderModalMode === 'edit' && editingLayerId) {
-      await updateFolder(editingLayerId, name, pid ? parseInt(pid) : null, color);
-    } else {
-      await createFolder(name, pid ? parseInt(pid) : null, color);
-    }
-    closeModal('folderModal');
-  });
-  document.getElementById('mFolderName').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') document.getElementById('btnConfirmFolder').click();
-  });
-
-  // Modal: edit
-  document.getElementById('btnConfirmEdit').addEventListener('click', confirmEdit);
-  document.getElementById('editModalBody').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && e.target.id === 'eName') confirmEdit();
-  });
-
-  // Modal: color
-  document.getElementById('colorCustom').addEventListener('input', () => {
-    document.querySelectorAll('.cswatch').forEach(el => el.classList.remove('active'));
-  });
-  document.getElementById('btnApplyColor').addEventListener('click', applyColor);
-
-  // Close modals via [data-close]
-  document.querySelectorAll('[data-close]').forEach(btn =>
-    btn.addEventListener('click', () => closeModal(btn.dataset.close)));
-  document.querySelectorAll('.moverlay').forEach(ov =>
-    ov.addEventListener('click', (e) => { if (e.target === ov) closeModal(ov.id); }));
-
-  // Context menu actions
-  document.getElementById('cx-newFolder').addEventListener('click', () => {
-    openFolderModal(ctxTarget?.id); hideCtx();
-  });
-  document.getElementById('cx-newSub').addEventListener('click', () => {
-    openFolderModal(ctxTarget?.id); hideCtx();
-  });
-  document.getElementById('cx-newPointHere').addEventListener('click', () => {
-    if (ctxTarget?.id) document.getElementById('fldFolder').value = ctxTarget.id;
-    document.getElementById('addForm').scrollIntoView({ behavior: 'smooth' });
-    document.getElementById('fldCoords').focus();
-    hideCtx();
-  });
-  document.getElementById('cx-newShapeHere').addEventListener('click', () => {
-    if (ctxTarget?.id) document.getElementById('fldShapeFolder').value = ctxTarget.id;
-    document.getElementById('addForm').scrollIntoView({ behavior: 'smooth' });
-    document.getElementById('fldShapeCoords').focus();
-    hideCtx();
-  });
-  document.getElementById('cx-copy').addEventListener('click', () => {
-    if (selectedIds.size > 1) copySelectedLayers();
-    else if (ctxTarget?.id) copyLayerById(ctxTarget.id);
-    hideCtx();
-  });
-  document.getElementById('cx-paste').addEventListener('click', () => {
-    pasteItems(ctxTarget?.id || null); hideCtx();
-  });
-  document.getElementById('cx-edit').addEventListener('click', () => {
-    if (ctxTarget?.id) editLayerById(ctxTarget.id); hideCtx();
-  });
-  document.getElementById('cx-color').addEventListener('click', () => {
-    if (ctxTarget?.id) showColorPicker(ctxTarget.id, selectedIds.size > 1); hideCtx();
-  });
-  document.getElementById('cx-center').addEventListener('click', () => {
-    if (ctxTarget?.id) {
-      const lType = ctxTarget.layerType;
-      if (lType === 'point') centerOnPoint(ctxTarget.id);
-      else if (lType === 'shape') centerOnShape(ctxTarget.id);
-    }
-    hideCtx();
-  });
-  document.getElementById('cx-delete').addEventListener('click', () => {
-    if (selectedIds.size > 1) deleteSelectedLayers();
-    else if (ctxTarget?.id) deleteLayerById(ctxTarget.id);
-    hideCtx();
-  });
-
-  // Right-click on tree empty area
-  document.getElementById('layerTree').addEventListener('contextmenu', (e) => {
-    if (e.target === document.getElementById('layerTree') ||
-        e.target.classList.contains('empty-state') ||
-        e.target.closest('.empty-state')) {
-      e.preventDefault();
-      ctxTarget = { type: 'empty', id: null };
-      showContextMenu(e.clientX, e.clientY);
-    }
-  });
-
-  // Dismiss context menu
-  document.addEventListener('click', (e) => {
-    if (!document.getElementById('ctx').contains(e.target)) hideCtx();
-  });
-
-  // Search
-  document.getElementById('searchInput').addEventListener('input', () => renderTree());
-
-  // Deselect on workspace click (not on items)
-  document.getElementById('layerTree').addEventListener('click', (e) => {
-    if (e.target === document.getElementById('layerTree') ||
-        e.target.classList.contains('empty-state')) {
-      selectedIds.clear();
-      document.querySelectorAll('.li.sel').forEach(x => x.classList.remove('sel'));
-      updateSelStat();
-    }
-  });
-
-  // Keyboard shortcuts
-  document.addEventListener('keydown', async (e) => {
-    const inField = e.target.matches('input,textarea,select');
-    if (inField && e.key !== 'Escape') return;
-
-    if ((e.ctrlKey||e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); }
-    if ((e.ctrlKey||e.metaKey) && e.key === 'c' && selectedIds.size) { e.preventDefault(); copySelectedLayers(); }
-    if ((e.ctrlKey||e.metaKey) && e.key === 'v') { e.preventDefault(); pasteItems(null); }
-    if ((e.ctrlKey||e.metaKey) && e.key === 'a') {
-      if (!inField) {
-        e.preventDefault();
-        const all = await db.layers.toArray();
-        selectedIds.clear(); all.forEach(l => selectedIds.add(l.id));
-        await renderTree();
-      }
-    }
-    if (e.key === 'Delete' && selectedIds.size) { e.preventDefault(); deleteSelectedLayers(); }
-    if (e.key === 'Escape') {
-      selectedIds.clear();
-      hideCtx();
-      document.querySelectorAll('.moverlay.show').forEach(m => m.classList.remove('show'));
-      await renderTree();
-    }
-    if (e.key === 'F2') { e.preventDefault(); document.getElementById('searchInput').focus(); }
-    if ((e.ctrlKey||e.metaKey) && e.shiftKey && e.key === 'F') { e.preventDefault(); openFolderModal(); }
-  });
-}
-
-// ═══════════════════════════════════════════════════════════
 // PASTA DE SAVE AUTOMÁTICO (ESTRUTURA ESPELHADA)
 // ═══════════════════════════════════════════════════════════
-
-// Helper: caminho da pasta a partir da raiz, usando nomes de pastas
-async function getFolderPath(folderId) {
-  if (!folderId) return [];
-  const path = [];
-  let current = await db.layers.get(folderId);
-  while (current && current.parentId) {
-    path.unshift(current.name);
-    current = await db.layers.get(current.parentId);
-  }
-  if (current) path.unshift(current.name);
-  return path;
-}
-
-// Helper: obter ou criar diretório recursivamente
-async function getOrCreateDirPath(rootHandle, pathParts) {
-  let current = rootHandle;
-  for (const part of pathParts) {
-    try {
-      current = await current.getDirectoryHandle(part, { create: true });
-    } catch (e) {
-      console.warn('Erro ao criar/acessar diretório', part, e);
-      return null;
-    }
-  }
-  return current;
-}
 
 async function selectSaveFolder() {
   if (!('showDirectoryPicker' in window)) {
@@ -2098,8 +1849,8 @@ async function selectSaveFolder() {
   try {
     saveDirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
     updateSaveFolderUI();
-    showStatus(`Save automático em: ${saveDirHandle.name}. Importando dados existentes...`, 'info');
-    await importFromDirectory(saveDirHandle, []);
+    showStatus(`Importando dados da pasta "${saveDirHandle.name}"...`, 'info');
+    await importFromDirectory(saveDirHandle, null);
     await renderTree();
     showStatus(`Dados importados da pasta "${saveDirHandle.name}"`, 'success');
     await autoSave();
@@ -2108,47 +1859,22 @@ async function selectSaveFolder() {
   }
 }
 
-function updateSaveFolderUI() {
-  const btn = document.getElementById('btnSaveFolder');
-  const lbl = document.getElementById('saveFolderLabel');
-  if (saveDirHandle) {
-    btn.classList.add('on');
-    lbl.textContent = saveDirHandle.name;
-    btn.title = `Save automático em: ${saveDirHandle.name} — clique para trocar`;
-  } else {
-    btn.classList.remove('on');
-    lbl.textContent = 'Pasta Save';
-    btn.title = 'Selecionar pasta de save automático';
-  }
-}
-
-// Varredura recursiva da pasta base, importando arquivos .kmz, .kml, .json
-async function importFromDirectory(dirHandle, parentPath) {
+async function importFromDirectory(dirHandle, parentId) {
   try {
     const entries = [];
-    // Itera sobre as entradas
     for await (const [name, handle] of dirHandle.entries()) {
       entries.push({ name, handle });
     }
 
-    // Primeiro processa pastas (para criar a hierarquia)
+    // Primeiro, processa subpastas (cria pastas no banco)
     for (const entry of entries) {
       if (entry.handle.kind === 'directory') {
-        // Cria a pasta no banco se não existir
-        const existingFolder = (await db.layers.toArray()).find(l =>
-          l.type === 'folder' && l.name === entry.name &&
-          (parentPath.length === 0 ? !l.parentId : (await getFolderPath(l.parentId)).join('/') === parentPath.join('/'))
+        // Verifica se já existe uma pasta com mesmo nome e mesmo parentId
+        const existing = (await db.layers.toArray()).find(l =>
+          l.type === 'folder' && l.name === entry.name && l.parentId === parentId
         );
         let folderId;
-        if (!existingFolder) {
-          // Descobre o parentId baseado no parentPath
-          let parentId = null;
-          if (parentPath.length > 0) {
-            const parentFolder = (await db.layers.toArray()).find(l =>
-              l.type === 'folder' && l.name === parentPath[parentPath.length-1]
-            );
-            if (parentFolder) parentId = parentFolder.id;
-          }
+        if (!existing) {
           folderId = await db.layers.add({
             name: entry.name,
             type: 'folder',
@@ -2161,34 +1887,26 @@ async function importFromDirectory(dirHandle, parentPath) {
           });
           expandedFolders.add(folderId);
         } else {
-          folderId = existingFolder.id;
+          folderId = existing.id;
         }
-        // Recursão na subpasta
-        await importFromDirectory(entry.handle, [...parentPath, entry.name]);
+        // Recursão com o folderId como novo parent
+        await importFromDirectory(entry.handle, folderId);
       }
     }
 
-    // Depois processa arquivos
+    // Depois, processa arquivos (KML/KMZ/JSON)
     for (const entry of entries) {
       if (entry.handle.kind === 'file') {
         const fileName = entry.name;
         const ext = fileName.split('.').pop().toLowerCase();
         if (['kmz', 'kml', 'json'].includes(ext)) {
           const file = await entry.handle.getFile();
-          // Descobre a pasta pai no banco
-          let parentId = null;
-          if (parentPath.length > 0) {
-            const parentFolder = (await db.layers.toArray()).find(l =>
-              l.type === 'folder' && l.name === parentPath[parentPath.length-1]
-            );
-            if (parentFolder) parentId = parentFolder.id;
-          }
           if (ext === 'json') {
             const text = await file.text();
             let data;
             try { data = JSON.parse(text); } catch { continue; }
             if (data.layers) {
-              // Se for um backup do AquaMap, importa as camadas
+              // Backup do AquaMap: importa todas as camadas mantendo hierarquia
               const sorted = [...data.layers].sort((a,b) => (!a.parentId && b.parentId) ? -1 : (a.parentId && !b.parentId) ? 1 : 0);
               const idMap = {};
               let mo = await getMaxOrder();
@@ -2240,7 +1958,6 @@ async function importFromDirectory(dirHandle, parentPath) {
   }
 }
 
-// Versão silenciosa do importKMLText que não pede confirmação e retorna contagem
 async function importKMLTextSilent(text, sourceName, parentId) {
   try {
     const doc = new DOMParser().parseFromString(text, 'application/xml');
@@ -2280,7 +1997,6 @@ async function importKMLTextSilent(text, sourceName, parentId) {
     }
     return count;
   } catch (e) {
-    console.warn('Erro silencioso ao importar KML', e);
     return 0;
   }
 }
@@ -2305,12 +2021,11 @@ async function createShapeSilent(name, geojsonStr, color, opacity, parentId) {
   addMarkerToMap(saved);
 }
 
-// Auto-save espelhando a estrutura de pastas/camadas
 async function autoSave() {
   if (!saveDirHandle) return;
   try {
     const all = await db.layers.toArray();
-    // Salva o JSON completo na raiz como backup
+    // Salva JSON completo na raiz
     const content = JSON.stringify(
       { version: '2.0', app: 'AquaMap', exportDate: new Date().toISOString(), layers: all },
       null, 2
@@ -2320,8 +2035,7 @@ async function autoSave() {
     await backupWritable.write(content);
     await backupWritable.close();
 
-    // Agora percorre as camadas e cria pastas/arquivos KMZ espelhados
-    // Primeiro, pastas (folders) criam diretórios
+    // Espelha pastas e arquivos KMZ
     const folders = all.filter(l => l.type === 'folder');
     for (const folder of folders) {
       const pathParts = await getFolderPath(folder.id);
@@ -2330,7 +2044,6 @@ async function autoSave() {
       }
     }
 
-    // Pontos e shapes geram arquivos KMZ dentro de suas respectivas pastas
     const items = all.filter(l => l.type === 'point' || l.type === 'shape');
     for (const item of items) {
       const pathParts = item.parentId ? await getFolderPath(item.parentId) : [];
@@ -2345,7 +2058,6 @@ async function autoSave() {
         await writable.close();
       }
     }
-
   } catch (e) {
     if (e.name === 'NotAllowedError') {
       try {
@@ -2359,9 +2071,224 @@ async function autoSave() {
   }
 }
 
+async function getFolderPath(folderId) {
+  if (!folderId) return [];
+  const path = [];
+  let current = await db.layers.get(folderId);
+  while (current && current.parentId) {
+    path.unshift(current.name);
+    current = await db.layers.get(current.parentId);
+  }
+  if (current) path.unshift(current.name);
+  return path;
+}
+
+async function getOrCreateDirPath(rootHandle, pathParts) {
+  let current = rootHandle;
+  for (const part of pathParts) {
+    try {
+      current = await current.getDirectoryHandle(part, { create: true });
+    } catch (e) {
+      return null;
+    }
+  }
+  return current;
+}
+
 function scheduleAutoSave() {
   clearTimeout(autoSaveTimer);
   autoSaveTimer = setTimeout(autoSave, 600);
+}
+
+// ═══════════════════════════════════════════════════════════
+// EVENT LISTENERS
+// ═══════════════════════════════════════════════════════════
+
+function setupEvents() {
+  document.getElementById('btnUndo').addEventListener('click', undo);
+  document.getElementById('btnLabels').addEventListener('click', toggleLabels);
+  document.getElementById('btnSelAll').addEventListener('click', async () => {
+    const all = await db.layers.toArray();
+    selectedIds.clear(); all.forEach(l => selectedIds.add(l.id));
+    await renderTree();
+  });
+  document.getElementById('btnShowAll').addEventListener('click', () => setAllVisibility(true));
+  document.getElementById('btnHideAll').addEventListener('click', () => setAllVisibility(false));
+  document.getElementById('btnBackup').addEventListener('click', saveBackup);
+  document.getElementById('btnImportBtn').addEventListener('click', () => document.getElementById('importFileInput').click());
+  document.getElementById('importFileInput').addEventListener('change', (e) => {
+    if (e.target.files[0]) { handleImport(e.target.files[0]); e.target.value = ''; }
+  });
+  document.getElementById('btnSaveFolder').addEventListener('click', selectSaveFolder);
+
+  document.getElementById('btnNewFolder').addEventListener('click', () => {
+    const pid = selectedIds.size === 1 ? [...selectedIds][0] : null;
+    openFolderModal(pid);
+  });
+  document.getElementById('btnNewPoint').addEventListener('click', () => {
+    document.getElementById('addForm').scrollIntoView({ behavior: 'smooth' });
+    document.getElementById('fldCoords').focus();
+  });
+  document.getElementById('btnNewShape').addEventListener('click', () => {
+    document.getElementById('addForm').scrollIntoView({ behavior: 'smooth' });
+    document.getElementById('fldShapeCoords').focus();
+  });
+  document.getElementById('btnCopy').addEventListener('click', copySelectedLayers);
+  document.getElementById('btnPaste').addEventListener('click', () => {
+    const pid = selectedIds.size === 1 ? [...selectedIds][0] : null;
+    pasteItems(pid);
+  });
+  document.getElementById('btnDelSel').addEventListener('click', deleteSelectedLayers);
+
+  document.getElementById('btnAddPoints').addEventListener('click', addPointsFromForm);
+  document.getElementById('btnAddShape').addEventListener('click', addShapeFromForm);
+  document.getElementById('btnClearForm').addEventListener('click', () => {
+    document.getElementById('fldName').value = '';
+    document.getElementById('fldCoords').value = '';
+    document.getElementById('fldMonth').value = '';
+    document.getElementById('fldShapeName').value = '';
+    document.getElementById('fldShapeCoords').value = '';
+    showStatus('Formulário limpo', 'info');
+  });
+
+  const opacitySlider = document.getElementById('fldShapeOpacity');
+  const opacityVal    = document.getElementById('opacityValue');
+  if (opacitySlider && opacityVal) {
+    opacitySlider.addEventListener('input', () => {
+      opacityVal.textContent = opacitySlider.value;
+    });
+  }
+
+  document.getElementById('btnCenter').addEventListener('click', () =>
+    map.setView([-15.793889, -47.882778], 4, { animate: true }));
+  document.getElementById('btnFitAll').addEventListener('click', fitAllPoints);
+
+  document.getElementById('btnConfirmFolder').addEventListener('click', async () => {
+    const name  = document.getElementById('mFolderName').value;
+    const pid   = document.getElementById('mFolderParent').value || null;
+    const color = document.getElementById('mFolderColor').value;
+    if (folderModalMode === 'edit' && editingLayerId) {
+      await updateFolder(editingLayerId, name, pid ? parseInt(pid) : null, color);
+    } else {
+      await createFolder(name, pid ? parseInt(pid) : null, color);
+    }
+    closeModal('folderModal');
+  });
+  document.getElementById('mFolderName').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('btnConfirmFolder').click();
+  });
+
+  document.getElementById('btnConfirmEdit').addEventListener('click', confirmEdit);
+  document.getElementById('editModalBody').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.id === 'eName') confirmEdit();
+  });
+
+  document.getElementById('colorCustom').addEventListener('input', () => {
+    document.querySelectorAll('.cswatch').forEach(el => el.classList.remove('active'));
+  });
+  document.getElementById('btnApplyColor').addEventListener('click', applyColor);
+
+  document.querySelectorAll('[data-close]').forEach(btn =>
+    btn.addEventListener('click', () => closeModal(btn.dataset.close)));
+  document.querySelectorAll('.moverlay').forEach(ov =>
+    ov.addEventListener('click', (e) => { if (e.target === ov) closeModal(ov.id); }));
+
+  document.getElementById('cx-newFolder').addEventListener('click', () => {
+    openFolderModal(ctxTarget?.id); hideCtx();
+  });
+  document.getElementById('cx-newSub').addEventListener('click', () => {
+    openFolderModal(ctxTarget?.id); hideCtx();
+  });
+  document.getElementById('cx-newPointHere').addEventListener('click', () => {
+    if (ctxTarget?.id) document.getElementById('fldFolder').value = ctxTarget.id;
+    document.getElementById('addForm').scrollIntoView({ behavior: 'smooth' });
+    document.getElementById('fldCoords').focus();
+    hideCtx();
+  });
+  document.getElementById('cx-newShapeHere').addEventListener('click', () => {
+    if (ctxTarget?.id) document.getElementById('fldShapeFolder').value = ctxTarget.id;
+    document.getElementById('addForm').scrollIntoView({ behavior: 'smooth' });
+    document.getElementById('fldShapeCoords').focus();
+    hideCtx();
+  });
+  document.getElementById('cx-copy').addEventListener('click', () => {
+    if (selectedIds.size > 1) copySelectedLayers();
+    else if (ctxTarget?.id) copyLayerById(ctxTarget.id);
+    hideCtx();
+  });
+  document.getElementById('cx-paste').addEventListener('click', () => {
+    pasteItems(ctxTarget?.id || null); hideCtx();
+  });
+  document.getElementById('cx-edit').addEventListener('click', () => {
+    if (ctxTarget?.id) editLayerById(ctxTarget.id); hideCtx();
+  });
+  document.getElementById('cx-color').addEventListener('click', () => {
+    if (ctxTarget?.id) showColorPicker(ctxTarget.id, selectedIds.size > 1); hideCtx();
+  });
+  document.getElementById('cx-center').addEventListener('click', () => {
+    if (ctxTarget?.id) {
+      const lType = ctxTarget.layerType;
+      if (lType === 'point') centerOnPoint(ctxTarget.id);
+      else if (lType === 'shape') centerOnShape(ctxTarget.id);
+    }
+    hideCtx();
+  });
+  document.getElementById('cx-delete').addEventListener('click', () => {
+    if (selectedIds.size > 1) deleteSelectedLayers();
+    else if (ctxTarget?.id) deleteLayerById(ctxTarget.id);
+    hideCtx();
+  });
+
+  document.getElementById('layerTree').addEventListener('contextmenu', (e) => {
+    if (e.target === document.getElementById('layerTree') ||
+        e.target.classList.contains('empty-state') ||
+        e.target.closest('.empty-state')) {
+      e.preventDefault();
+      ctxTarget = { type: 'empty', id: null };
+      showContextMenu(e.clientX, e.clientY);
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!document.getElementById('ctx').contains(e.target)) hideCtx();
+  });
+
+  document.getElementById('searchInput').addEventListener('input', () => renderTree());
+
+  document.getElementById('layerTree').addEventListener('click', (e) => {
+    if (e.target === document.getElementById('layerTree') ||
+        e.target.classList.contains('empty-state')) {
+      selectedIds.clear();
+      document.querySelectorAll('.li.sel').forEach(x => x.classList.remove('sel'));
+      updateSelStat();
+    }
+  });
+
+  document.addEventListener('keydown', async (e) => {
+    const inField = e.target.matches('input,textarea,select');
+    if (inField && e.key !== 'Escape') return;
+
+    if ((e.ctrlKey||e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); }
+    if ((e.ctrlKey||e.metaKey) && e.key === 'c' && selectedIds.size) { e.preventDefault(); copySelectedLayers(); }
+    if ((e.ctrlKey||e.metaKey) && e.key === 'v') { e.preventDefault(); pasteItems(null); }
+    if ((e.ctrlKey||e.metaKey) && e.key === 'a') {
+      if (!inField) {
+        e.preventDefault();
+        const all = await db.layers.toArray();
+        selectedIds.clear(); all.forEach(l => selectedIds.add(l.id));
+        await renderTree();
+      }
+    }
+    if (e.key === 'Delete' && selectedIds.size) { e.preventDefault(); deleteSelectedLayers(); }
+    if (e.key === 'Escape') {
+      selectedIds.clear();
+      hideCtx();
+      document.querySelectorAll('.moverlay.show').forEach(m => m.classList.remove('show'));
+      await renderTree();
+    }
+    if (e.key === 'F2') { e.preventDefault(); document.getElementById('searchInput').focus(); }
+    if ((e.ctrlKey||e.metaKey) && e.shiftKey && e.key === 'F') { e.preventDefault(); openFolderModal(); }
+  });
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2373,7 +2300,6 @@ async function init() {
     await initDB();
     initMap();
 
-    // Load existing data
     const all = await db.layers.toArray();
     for (const l of all) {
       if (l.type === 'point' || l.type === 'shape') addMarkerToMap(l);
@@ -2382,7 +2308,6 @@ async function init() {
 
     await renderTree();
     setupEvents();
-    // Rótulos ativos por padrão
     document.getElementById('btnLabels').classList.add('on');
     showStatus('AquaMap pronto');
   } catch (err) {
