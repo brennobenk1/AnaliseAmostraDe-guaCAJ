@@ -69,6 +69,9 @@ body{font-family:'IBM Plex Sans',sans-serif;font-size:14px;background:var(--bg0)
 .li.li-folder{background:var(--bg3)}
 .li.li-folder:hover{background:var(--bg4)}
 .li.li-folder.sel{background:rgba(8,145,178,.22)}
+.li.li-shape{background:rgba(139,92,246,0.08)}
+.li.li-shape:hover{background:rgba(139,92,246,0.15)}
+.li.li-shape.sel{background:rgba(139,92,246,0.25);outline:1px solid rgba(139,92,246,0.5)}
 .li[data-depth="1"]{margin-left:18px}
 .li[data-depth="2"]{margin-left:36px}
 .li[data-depth="3"]{margin-left:54px}
@@ -89,6 +92,7 @@ body{font-family:'IBM Plex Sans',sans-serif;font-size:14px;background:var(--bg0)
 .li-icon{width:19px;height:19px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:11px;cursor:pointer}
 .fi{color:var(--warning)}
 .pi{color:var(--accent-l)}
+.si-shape{color:#a78bfa}
 .li-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;border:1px solid rgba(255,255,255,.15)}
 .li-text{flex:1;min-width:0}
 .lname{font-size:12px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -228,6 +232,7 @@ body{font-family:'IBM Plex Sans',sans-serif;font-size:14px;background:var(--bg0)
       <span class="shtitle">Camadas</span>
       <button class="shbtn" id="btnNewFolder" title="Nova Pasta (Ctrl+Shift+F)"><i class="fas fa-folder-plus"></i></button>
       <button class="shbtn" id="btnNewPoint" title="Novo Ponto (foco no form)"><i class="fas fa-map-pin"></i></button>
+      <button class="shbtn" id="btnNewShape" title="Novo Shape (polígono/linha)"><i class="fas fa-draw-polygon"></i></button>
       <button class="shbtn" id="btnCopy" title="Copiar selecionados (Ctrl+C)"><i class="fas fa-copy"></i></button>
       <button class="shbtn" id="btnPaste" title="Colar (Ctrl+V)"><i class="fas fa-paste"></i></button>
       <button class="shbtn danger" id="btnDelSel" title="Excluir selecionados (Del)"><i class="fas fa-trash"></i></button>
@@ -261,11 +266,37 @@ body{font-family:'IBM Plex Sans',sans-serif;font-size:14px;background:var(--bg0)
         <button class="btn-p" id="btnAddPoints"><i class="fas fa-plus"></i> Adicionar</button>
         <button class="btn-s" id="btnClearForm" title="Limpar formulário"><i class="fas fa-times"></i></button>
       </div>
+      <div class="fsect" style="margin-top:12px"><i class="fas fa-shapes"></i> Adicionar Shape</div>
+      <div class="fg">
+        <label>Nome do Shape</label>
+        <input type="text" id="fldShapeName" placeholder="Ex: Área de Interesse">
+      </div>
+      <div class="fg">
+        <label>Pasta de Destino</label>
+        <select id="fldShapeFolder"><option value="">— Raiz —</option></select>
+      </div>
+      <div class="fg">
+        <label>Coordenadas do polígono (GeoJSON Polygon ou array de [lat,lng])</label>
+        <textarea id="fldShapeCoords" placeholder='Ex: [[[-15.79,-47.88],[-15.80,-47.87],[-15.81,-47.89],[-15.79,-47.88]]]'></textarea>
+      </div>
+      <div class="fg">
+        <label>Cor do Shape</label>
+        <input type="color" id="fldShapeColor" value="#8b5cf6">
+      </div>
+      <div class="fg">
+        <label>Opacidade</label>
+        <input type="range" id="fldShapeOpacity" min="0" max="1" step="0.05" value="0.5">
+        <span id="opacityValue">0.5</span>
+      </div>
+      <div class="frow">
+        <button class="btn-p" id="btnAddShape"><i class="fas fa-plus"></i> Adicionar Shape</button>
+      </div>
     </div>
 
     <div id="sstats">
       <div class="stat"><span id="stFolders">0</span><label>Pastas</label></div>
       <div class="stat"><span id="stPoints">0</span><label>Pontos</label></div>
+      <div class="stat"><span id="stShapes">0</span><label>Shapes</label></div>
       <div class="stat"><span id="stSel">0</span><label>Selecionados</label></div>
     </div>
   </aside>
@@ -286,6 +317,7 @@ body{font-family:'IBM Plex Sans',sans-serif;font-size:14px;background:var(--bg0)
   <div class="citem" id="cx-newFolder"><i class="fas fa-folder-plus"></i> Nova Pasta Aqui</div>
   <div class="citem" id="cx-newSub"><i class="fas fa-folder"></i> Nova Subpasta</div>
   <div class="citem" id="cx-newPointHere"><i class="fas fa-map-pin"></i> Novo Ponto Aqui</div>
+  <div class="citem" id="cx-newShapeHere"><i class="fas fa-draw-polygon"></i> Novo Shape Aqui</div>
   <div class="csep"></div>
   <div class="citem" id="cx-copy"><i class="fas fa-copy"></i> Copiar</div>
   <div class="citem" id="cx-paste"><i class="fas fa-paste"></i> Colar Dentro</div>
@@ -379,8 +411,8 @@ const PRESET_COLORS = [
 // STATE
 // ═══════════════════════════════════════════════════════════
 
-let db, map, markersLayer;
-let markers = {};             // id -> { marker }
+let db, map, markersLayer, shapesLayer;
+let markers = {};             // id -> { marker, type:'point'|'shape' }
 let selectedIds = new Set();
 let clipboard = [];           // deep-copied layer trees
 let expandedFolders = new Set();
@@ -430,7 +462,7 @@ function closeModal(id) { document.getElementById(id).classList.remove('show'); 
 // ═══════════════════════════════════════════════════════════
 
 async function initDB() {
-  db = new Dexie('AquaMapDB_v3');
+  db = new Dexie('AquaMapDB_v4');
   db.version(1).stores({
     layers: '++id, name, type, parentId, order, createdAt'
   });
@@ -465,6 +497,7 @@ function initMap() {
   }).addTo(map);
 
   markersLayer = L.layerGroup().addTo(map);
+  shapesLayer = L.layerGroup().addTo(map);
 
   // Shift+Click → add point
   map.on('click', (e) => {
@@ -510,55 +543,119 @@ function buildPopupContent(layer) {
   return div;
 }
 
+function buildShapePopup(layer) {
+  const div = document.createElement('div');
+  div.className = 'mpop';
+  div.innerHTML = `
+    <div class="mpop-title"><i class="fas fa-shapes" style="color:#a78bfa;font-size:10px;margin-right:5px;"></i>${esc(layer.name)}</div>
+    <div class="mpop-coords">${layer.shapeType || 'Polígono'}</div>
+    <div class="mpop-acts">
+      <button class="pbtn" onclick="editLayerById(${layer.id});map.closePopup()"><i class="fas fa-edit"></i> Editar</button>
+      <button class="pbtn" onclick="copyLayerById(${layer.id});map.closePopup()"><i class="fas fa-copy"></i> Copiar</button>
+    </div>`;
+  return div;
+}
+
 function addMarkerToMap(layer) {
-  if (layer.type !== 'point') return;
-  if (layer.lat == null || layer.lng == null) return;
-
-  const marker = L.marker([layer.lat, layer.lng], {
-    icon: makeIcon(layer.color),
-    title: layer.name
-  });
-
-  marker.bindPopup(() => buildPopupContent(layer), { maxWidth: 260 });
-
-  marker.on('click', () => {
-    document.querySelectorAll('.li.map-hi').forEach(e => e.classList.remove('map-hi'));
-    const el = document.querySelector(`.li[data-id="${layer.id}"]`);
-    if (el) { el.classList.add('map-hi'); el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
-  });
-
-  if (layer.visible !== false) markersLayer.addLayer(marker);
-
-  // Rótulo permanente — sempre visível acima do ponto
-  marker.bindTooltip(layer.name, { permanent: true, direction: 'top', className: 'point-label', offset: [0, -30] });
-
-  markers[layer.id] = { marker };
+  if (layer.type === 'point') {
+    if (layer.lat == null || layer.lng == null) return;
+    const marker = L.marker([layer.lat, layer.lng], {
+      icon: makeIcon(layer.color),
+      title: layer.name
+    });
+    marker.bindPopup(() => buildPopupContent(layer), { maxWidth: 260 });
+    marker.on('click', () => {
+      document.querySelectorAll('.li.map-hi').forEach(e => e.classList.remove('map-hi'));
+      const el = document.querySelector(`.li[data-id="${layer.id}"]`);
+      if (el) { el.classList.add('map-hi'); el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+    });
+    if (layer.visible !== false) markersLayer.addLayer(marker);
+    marker.bindTooltip(layer.name, { permanent: true, direction: 'top', className: 'point-label', offset: [0, -30] });
+    markers[layer.id] = { marker, type: 'point' };
+  } else if (layer.type === 'shape') {
+    if (!layer.geojson) return;
+    try {
+      const geojson = typeof layer.geojson === 'string' ? JSON.parse(layer.geojson) : layer.geojson;
+      const style = {
+        color: layer.color || '#8b5cf6',
+        fillColor: layer.color || '#8b5cf6',
+        fillOpacity: layer.opacity != null ? layer.opacity : 0.5,
+        weight: 2,
+        opacity: 0.8
+      };
+      const shape = L.geoJSON(geojson, {
+        style: style,
+        onEachFeature: (feature, l) => {
+          l.bindPopup(() => buildShapePopup(layer));
+          l.on('click', () => {
+            document.querySelectorAll('.li.map-hi').forEach(e => e.classList.remove('map-hi'));
+            const el = document.querySelector(`.li[data-id="${layer.id}"]`);
+            if (el) { el.classList.add('map-hi'); el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+          });
+        }
+      });
+      if (layer.visible !== false) shapesLayer.addLayer(shape);
+      markers[layer.id] = { marker: shape, type: 'shape' };
+    } catch (e) {
+      console.warn('Erro ao carregar shape', layer.id, e);
+    }
+  }
 }
 
 function removeMarkerFromMap(id) {
-  if (markers[id]) { markersLayer.removeLayer(markers[id].marker); delete markers[id]; }
+  if (markers[id]) {
+    const obj = markers[id];
+    if (obj.type === 'point') {
+      markersLayer.removeLayer(obj.marker);
+    } else if (obj.type === 'shape') {
+      shapesLayer.removeLayer(obj.marker);
+    }
+    delete markers[id];
+  }
 }
 
 function setMarkerVisibility(id, visible) {
   if (!markers[id]) return;
-  if (visible) markersLayer.addLayer(markers[id].marker);
-  else markersLayer.removeLayer(markers[id].marker);
+  const obj = markers[id];
+  if (visible) {
+    if (obj.type === 'point') markersLayer.addLayer(obj.marker);
+    else shapesLayer.addLayer(obj.marker);
+  } else {
+    if (obj.type === 'point') markersLayer.removeLayer(obj.marker);
+    else shapesLayer.removeLayer(obj.marker);
+  }
 }
 
 function setMarkerColor(id, color) {
   if (!markers[id]) return;
-  markers[id].marker.setIcon(makeIcon(color));
+  const obj = markers[id];
+  if (obj.type === 'point') {
+    obj.marker.setIcon(makeIcon(color));
+  } else if (obj.type === 'shape') {
+    obj.marker.setStyle({ color: color, fillColor: color });
+  }
+}
+
+function setMarkerOpacity(id, opacity) {
+  if (!markers[id] || markers[id].type !== 'shape') return;
+  markers[id].marker.setStyle({ fillOpacity: opacity });
 }
 
 function refreshMarkerPopup(layer) {
   if (!markers[layer.id]) return;
-  markers[layer.id].marker.setPopupContent(buildPopupContent(layer));
-  markers[layer.id].marker.setIcon(makeIcon(layer.color));
-  markers[layer.id].marker.setLatLng([layer.lat, layer.lng]);
-  // Atualiza o rótulo com o novo nome
-  if (showLabels) {
-    markers[layer.id].marker.unbindTooltip();
-    markers[layer.id].marker.bindTooltip(layer.name, { permanent: true, direction: 'top', className: 'point-label', offset: [0, -30] });
+  const obj = markers[layer.id];
+  if (obj.type === 'point') {
+    obj.marker.setPopupContent(buildPopupContent(layer));
+    obj.marker.setIcon(makeIcon(layer.color));
+    obj.marker.setLatLng([layer.lat, layer.lng]);
+    if (showLabels) {
+      obj.marker.unbindTooltip();
+      obj.marker.bindTooltip(layer.name, { permanent: true, direction: 'top', className: 'point-label', offset: [0, -30] });
+    }
+  } else if (obj.type === 'shape') {
+    obj.marker.setPopupContent(buildShapePopup(layer));
+    obj.marker.setStyle({ color: layer.color, fillColor: layer.color, fillOpacity: layer.opacity || 0.5 });
+    // recria o shape se geojson mudou? manter simples por enquanto
   }
 }
 
@@ -570,7 +667,7 @@ function getAllPointsInFolder(folderId, allLayers) {
   const pts = [];
   (function walk(pid) {
     allLayers.filter(l => l.parentId === pid).forEach(l => {
-      if (l.type === 'point') pts.push(l);
+      if (l.type === 'point' || l.type === 'shape') pts.push(l);
       else walk(l.id);
     });
   })(folderId);
@@ -606,6 +703,8 @@ async function renderTree() {
 
 function buildItemHTML(layer, all, depth, q) {
   const isFolder = layer.type === 'folder';
+  const isShape  = layer.type === 'shape';
+  const isPoint  = layer.type === 'point';
   const isSel    = selectedIds.has(layer.id);
   const isExp    = expandedFolders.has(layer.id);
   const children = all.filter(l => l.parentId === layer.id).sort((a,b)=>(a.order||0)-(b.order||0));
@@ -634,26 +733,44 @@ function buildItemHTML(layer, all, depth, q) {
   let meta = '';
   if (isFolder) {
     meta = `${children.length} item${children.length !== 1 ? 's' : ''}`;
-  } else {
+  } else if (isPoint) {
     const coord = `${(layer.lat||0).toFixed(4)}, ${(layer.lng||0).toFixed(4)}`;
     if (layer.collectedAt) {
       const [y, m] = layer.collectedAt.split('-');
       const mn = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
       meta = `${mn[parseInt(m)-1]}/${y} · ${coord}`;
     } else { meta = coord; }
+  } else if (isShape) {
+    meta = layer.shapeType || 'Polígono';
+    if (layer.geojson) {
+      try {
+        const gj = typeof layer.geojson === 'string' ? JSON.parse(layer.geojson) : layer.geojson;
+        const coords = gj.coordinates || (gj.features && gj.features[0] && gj.features[0].geometry.coordinates);
+        if (coords && coords[0]) meta += ` · ${coords[0].length} vértices`;
+      } catch(e){}
+    }
   }
 
-  const centerBtn = !isFolder
-    ? `<button class="li-act" onclick="event.stopPropagation();centerOnPoint(${layer.id})" title="Centralizar"><i class="fas fa-crosshairs"></i></button>` : '';
+  const centerBtn = (isPoint) ? `<button class="li-act" onclick="event.stopPropagation();centerOnPoint(${layer.id})" title="Centralizar"><i class="fas fa-crosshairs"></i></button>` : '';
   const expBtn = isFolder
     ? `<button class="li-act" onclick="event.stopPropagation();toggleFolder(${layer.id})" title="${isExp?'Recolher':'Expandir'}"><i class="fas fa-${isExp?'chevron-down':'chevron-right'}"></i></button>` : '';
 
-  let html = `<div class="li ${isFolder?'li-folder':'li-point'} ${isSel?'sel':''} ${sClass}"
+  let iconClass = 'pi';
+  let iconHtml = '<i class="fas fa-tint"></i>';
+  if (isFolder) {
+    iconClass = 'fi';
+    iconHtml = `<i class="fas ${isExp?'fa-folder-open':'fa-folder'}"></i>`;
+  } else if (isShape) {
+    iconClass = 'si-shape';
+    iconHtml = '<i class="fas fa-draw-polygon"></i>';
+  }
+
+  let html = `<div class="li ${isFolder?'li-folder':(isShape?'li-shape':'li-point')} ${isSel?'sel':''} ${sClass}"
     data-id="${layer.id}" data-type="${layer.type}" data-depth="${depth}" draggable="true">
     <div class="li-drag"><i class="fas fa-grip-vertical"></i></div>
     <div class="li-vis ${vClass}" onclick="event.stopPropagation();toggleVisibility(${layer.id})"><i class="fas ${vIcon}"></i></div>
-    <div class="li-icon ${isFolder?'fi':'pi'}" onclick="${isFolder?`event.stopPropagation();toggleFolder(${layer.id})`:`event.stopPropagation();centerOnPoint(${layer.id})`}">
-      <i class="fas ${isFolder?(isExp?'fa-folder-open':'fa-folder'):'fa-tint'}"></i>
+    <div class="li-icon ${iconClass}" onclick="${isFolder?`event.stopPropagation();toggleFolder(${layer.id})`:(isPoint?`event.stopPropagation();centerOnPoint(${layer.id})`:`event.stopPropagation();centerOnShape(${layer.id})`)}">
+      ${iconHtml}
     </div>
     <div class="li-dot" style="background:${esc(layer.color||'#0891b2')}"></div>
     <div class="li-text">
@@ -864,6 +981,49 @@ async function createPoint(name, lat, lng, color, parentId, desc, month) {
 }
 
 // ═══════════════════════════════════════════════════════════
+// SHAPE CRUD
+// ═══════════════════════════════════════════════════════════
+
+async function createShape(name, geojsonStr, color, opacity, parentId, desc, month) {
+  let geojson;
+  try {
+    geojson = JSON.parse(geojsonStr);
+    // Garantir que é um GeoJSON Feature ou Geometry
+    if (geojson.type === 'Polygon' || geojson.type === 'MultiPolygon' || geojson.type === 'LineString' || geojson.type === 'MultiLineString') {
+      geojson = { type: 'Feature', geometry: geojson, properties: {} };
+    } else if (geojson.type === 'FeatureCollection' && geojson.features && geojson.features.length > 0) {
+      // usa a primeira feature
+      geojson = geojson.features[0];
+    } else if (geojson.type !== 'Feature') {
+      throw new Error('Formato GeoJSON inválido');
+    }
+  } catch (e) {
+    showStatus('Coordenadas inválidas. Use GeoJSON Polygon ou array de coordenadas.', 'error');
+    return null;
+  }
+
+  const shapeType = geojson.geometry ? geojson.geometry.type : (geojson.type || 'Polygon');
+  const id = await db.layers.add({
+    name: (name || '').trim() || 'Shape',
+    type: 'shape',
+    parentId: parentId || null,
+    geojson: JSON.stringify(geojson),
+    shapeType: shapeType,
+    color: color || '#8b5cf6',
+    opacity: opacity != null ? opacity : 0.5,
+    visible: true,
+    order: (await getMaxOrder()) + 10,
+    description: desc || '',
+    collectedAt: month || '',
+    createdAt: new Date()
+  });
+  const saved = await db.layers.get(id);
+  addMarkerToMap(saved);
+  pushUndo('create', { id });
+  return id;
+}
+
+// ═══════════════════════════════════════════════════════════
 // DELETE
 // ═══════════════════════════════════════════════════════════
 
@@ -886,10 +1046,10 @@ async function deleteLayerById(id, skipConfirm = false) {
   pushUndo('delete', { layers: snapshot });
 
   // Remove markers
-  if (layer.type === 'point') removeMarkerFromMap(id);
+  removeMarkerFromMap(id);
   for (const did of descs) {
     const d = await db.layers.get(did);
-    if (d && d.type === 'point') removeMarkerFromMap(did);
+    if (d && (d.type === 'point' || d.type === 'shape')) removeMarkerFromMap(did);
   }
 
   await db.layers.bulkDelete([id, ...descs]);
@@ -940,13 +1100,14 @@ async function toggleVisibility(id) {
 }
 
 async function setAllVisibility(visible) {
-  const pts = (await db.layers.toArray()).filter(l => l.type === 'point');
-  for (const p of pts) {
+  const all = await db.layers.toArray();
+  const items = all.filter(l => l.type === 'point' || l.type === 'shape');
+  for (const p of items) {
     await db.layers.update(p.id, { visible });
     setMarkerVisibility(p.id, visible);
   }
   await renderTree();
-  showStatus(visible ? 'Todos os pontos visíveis' : 'Todos os pontos ocultos');
+  showStatus(visible ? 'Todos os itens visíveis' : 'Todos os itens ocultos');
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -959,12 +1120,22 @@ function toggleFolder(id) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// CENTER ON POINT
+// CENTER ON POINT / SHAPE
 // ═══════════════════════════════════════════════════════════
 
 function centerOnPoint(id) {
   const m = markers[id];
-  if (m) { map.setView(m.marker.getLatLng(), 15, { animate: true }); m.marker.openPopup(); }
+  if (m && m.type === 'point') { map.setView(m.marker.getLatLng(), 15, { animate: true }); m.marker.openPopup(); }
+}
+
+function centerOnShape(id) {
+  const m = markers[id];
+  if (m && m.type === 'shape') {
+    try {
+      const bounds = m.marker.getBounds();
+      if (bounds.isValid()) map.fitBounds(bounds, { padding: [30,30], animate: true });
+    } catch(e) { showStatus('Não foi possível centralizar no shape', 'warning'); }
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1016,9 +1187,12 @@ async function pasteItems(targetParentId) {
       order: (await getMaxOrder()) + 10,
       description: item.description || '',
       collectedAt: item.collectedAt || '',
+      geojson: item.geojson || '',
+      shapeType: item.shapeType || '',
+      opacity: item.opacity != null ? item.opacity : 0.5,
       createdAt: new Date()
     });
-    if (item.type === 'point') {
+    if (item.type === 'point' || item.type === 'shape') {
       const saved = await db.layers.get(newId);
       addMarkerToMap(saved);
     } else {
@@ -1054,7 +1228,7 @@ async function undo() {
     for (const l of op.data.layers) {
       try {
         await db.layers.put({ ...l });
-        if (l.type === 'point') { const s = await db.layers.get(l.id); if (s) addMarkerToMap(s); }
+        if (l.type === 'point' || l.type === 'shape') { const s = await db.layers.get(l.id); if (s) addMarkerToMap(s); }
         else expandedFolders.add(l.id);
       } catch(e) { console.warn('Undo put conflict', e); }
     }
@@ -1063,7 +1237,7 @@ async function undo() {
   } else if (op.action === 'update') {
     await db.layers.update(op.data.id, op.data.before);
     const l = await db.layers.get(op.data.id);
-    if (l && l.type === 'point') { removeMarkerFromMap(op.data.id); addMarkerToMap(l); }
+    if (l && (l.type === 'point' || l.type === 'shape')) { removeMarkerFromMap(op.data.id); addMarkerToMap(l); }
     await renderTree();
     showStatus('Alteração desfeita');
   } else if (op.action === 'move') {
@@ -1087,7 +1261,8 @@ async function editLayerById(id) {
   const opts    = `<option value="">— Raiz —</option>` +
     folders.map(f => `<option value="${f.id}" ${f.id === layer.parentId ? 'selected' : ''}>${esc(f.name)}</option>`).join('');
 
-  document.getElementById('editModalTitle').textContent = layer.type === 'folder' ? 'Editar Pasta' : 'Editar Ponto';
+  document.getElementById('editModalTitle').textContent =
+    layer.type === 'folder' ? 'Editar Pasta' : (layer.type === 'shape' ? 'Editar Shape' : 'Editar Ponto');
 
   let body = `
     <div class="fg"><label>Nome *</label><input type="text" id="eName" value="${esc(layer.name)}"></div>
@@ -1100,9 +1275,25 @@ async function editLayerById(id) {
     <div class="fg"><label>Longitude</label><input type="number" id="eLng" value="${layer.lng||''}" step="any" placeholder="-47.8828"></div>
     <div class="fg"><label>Mês/Período</label><input type="month" id="eMonth" value="${layer.collectedAt||''}"></div>
     <div class="fg"><label>Descrição / Notas</label><textarea id="eDesc">${esc(layer.description||'')}</textarea></div>`;
+  } else if (layer.type === 'shape') {
+    const geojsonStr = typeof layer.geojson === 'string' ? layer.geojson : JSON.stringify(layer.geojson, null, 2);
+    body += `
+    <div class="fg"><label>GeoJSON</label><textarea id="eGeojson" style="min-height:80px;font-family:'IBM Plex Mono',monospace;">${esc(geojsonStr)}</textarea></div>
+    <div class="fg"><label>Opacidade</label><input type="range" id="eOpacity" min="0" max="1" step="0.05" value="${layer.opacity||0.5}"><span id="eOpacityVal">${layer.opacity||0.5}</span></div>
+    <div class="fg"><label>Mês/Período</label><input type="month" id="eMonth" value="${layer.collectedAt||''}"></div>
+    <div class="fg"><label>Descrição / Notas</label><textarea id="eDesc">${esc(layer.description||'')}</textarea></div>`;
   }
 
   document.getElementById('editModalBody').innerHTML = body;
+
+  // Opacity live update
+  const opacityInput = document.getElementById('eOpacity');
+  const opacityVal   = document.getElementById('eOpacityVal');
+  if (opacityInput && opacityVal) {
+    opacityInput.addEventListener('input', () => {
+      opacityVal.textContent = opacityInput.value;
+    });
+  }
 
   // Enter key in name field
   document.getElementById('eName').addEventListener('keydown', (e) => {
@@ -1133,11 +1324,24 @@ async function confirmEdit() {
     if (!isNaN(lng)) updates.lng = lng;
     updates.collectedAt = document.getElementById('eMonth')?.value || '';
     updates.description = document.getElementById('eDesc')?.value || '';
+  } else if (layer.type === 'shape') {
+    const geojsonStr = document.getElementById('eGeojson')?.value;
+    if (geojsonStr) {
+      try {
+        const gj = JSON.parse(geojsonStr);
+        updates.geojson = geojsonStr;
+        updates.shapeType = gj.geometry ? gj.geometry.type : (gj.type || 'Polygon');
+      } catch(e) { showStatus('GeoJSON inválido', 'error'); return; }
+    }
+    const op = parseFloat(document.getElementById('eOpacity')?.value);
+    if (!isNaN(op)) updates.opacity = op;
+    updates.collectedAt = document.getElementById('eMonth')?.value || '';
+    updates.description = document.getElementById('eDesc')?.value || '';
   }
 
   await db.layers.update(editingLayerId, updates);
 
-  if (layer.type === 'point') {
+  if (layer.type === 'point' || layer.type === 'shape') {
     const updated = await db.layers.get(editingLayerId);
     removeMarkerFromMap(editingLayerId);
     addMarkerToMap(updated);
@@ -1199,21 +1403,22 @@ function showContextMenu(x, y) {
   const isLayer  = ctxTarget?.type === 'layer';
   const isFolder = isLayer && ctxTarget.layerType === 'folder';
   const isPoint  = isLayer && ctxTarget.layerType === 'point';
+  const isShape  = isLayer && ctxTarget.layerType === 'shape';
   const hasCB    = clipboard.length > 0;
 
   const h = id => document.getElementById(id)?.classList.add('hid');
   const s = id => document.getElementById(id)?.classList.remove('hid');
 
   // Reset
-  ['cx-newFolder','cx-newSub','cx-newPointHere','cx-copy','cx-paste',
+  ['cx-newFolder','cx-newSub','cx-newPointHere','cx-newShapeHere','cx-copy','cx-paste',
    'cx-edit','cx-color','cx-center','cx-delete','cx-sep-del'].forEach(s);
 
-  if (isPoint) h('cx-newFolder');
   if (!isFolder) h('cx-newSub');
   if (!isLayer)  h('cx-copy');
   if (!hasCB)    h('cx-paste');
   if (!isLayer)  { h('cx-edit'); h('cx-color'); h('cx-delete'); h('cx-sep-del'); }
-  if (!isPoint)  h('cx-center');
+  if (!isPoint && !isShape) h('cx-center');
+  if (isShape) h('cx-newPointHere'); // esconde new point se for shape
 
   const menu = document.getElementById('ctx');
   menu.style.left = x + 'px';
@@ -1236,6 +1441,7 @@ function hideCtx() { document.getElementById('ctx').classList.remove('show'); }
 function updateStats(all) {
   document.getElementById('stFolders').textContent = all.filter(l => l.type === 'folder').length;
   document.getElementById('stPoints').textContent  = all.filter(l => l.type === 'point').length;
+  document.getElementById('stShapes').textContent  = all.filter(l => l.type === 'shape').length;
   updateSelStat();
 }
 
@@ -1249,6 +1455,7 @@ async function updateFolderSelects(all) {
   const opts = `<option value="">— Raiz —</option>` +
     folders.map(f => `<option value="${f.id}">${esc(f.name)}</option>`).join('');
   document.getElementById('fldFolder').innerHTML = opts;
+  document.getElementById('fldShapeFolder').innerHTML = opts;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1289,17 +1496,20 @@ function toggleLabels() {
   showLabels = !showLabels;
   document.getElementById('btnLabels').classList.toggle('on', showLabels);
 
-  Object.entries(markers).forEach(([id, { marker }]) => {
-    if (showLabels) {
-      db.layers.get(parseInt(id)).then(l => {
-        if (l) {
-          marker.unbindTooltip();
-          marker.bindTooltip(l.name, { permanent: true, direction: 'top', className: 'point-label', offset: [0, -30] });
-        }
-      });
-    } else {
-      marker.unbindTooltip();
+  Object.entries(markers).forEach(([id, { marker, type }]) => {
+    if (type === 'point') {
+      if (showLabels) {
+        db.layers.get(parseInt(id)).then(l => {
+          if (l) {
+            marker.unbindTooltip();
+            marker.bindTooltip(l.name, { permanent: true, direction: 'top', className: 'point-label', offset: [0, -30] });
+          }
+        });
+      } else {
+        marker.unbindTooltip();
+      }
     }
+    // shapes não têm tooltip permanente
   });
   showStatus(showLabels ? 'Rótulos ativados' : 'Rótulos desativados');
 }
@@ -1359,14 +1569,40 @@ async function addPointsFromForm() {
   else showStatus('Nenhuma coordenada válida', 'error');
 }
 
+async function addShapeFromForm() {
+  const name    = document.getElementById('fldShapeName').value.trim() || 'Shape';
+  const fldId   = document.getElementById('fldShapeFolder').value || null;
+  const color   = document.getElementById('fldShapeColor').value;
+  const opacity = parseFloat(document.getElementById('fldShapeOpacity').value);
+  const raw     = document.getElementById('fldShapeCoords').value.trim();
+
+  if (!raw) { showStatus('Insira as coordenadas do shape', 'error'); return; }
+
+  await createShape(name, raw, color, opacity, fldId ? parseInt(fldId) : null, '', '');
+  await renderTree();
+}
+
 // ═══════════════════════════════════════════════════════════
 // FIT MAP
 // ═══════════════════════════════════════════════════════════
 
 function fitAllPoints() {
-  const pts = Object.values(markers).map(m => m.marker.getLatLng());
-  if (!pts.length) { showStatus('Nenhum ponto para enquadrar', 'info'); return; }
-  map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], animate: true });
+  const allMarkers = [];
+  for (const obj of Object.values(markers)) {
+    if (obj.type === 'point') {
+      allMarkers.push(obj.marker.getLatLng());
+    } else if (obj.type === 'shape') {
+      try {
+        const bounds = obj.marker.getBounds();
+        if (bounds.isValid()) {
+          allMarkers.push(bounds.getNorthWest());
+          allMarkers.push(bounds.getSouthEast());
+        }
+      } catch(e) {}
+    }
+  }
+  if (!allMarkers.length) { showStatus('Nenhum item para enquadrar', 'info'); return; }
+  map.fitBounds(L.latLngBounds(allMarkers), { padding: [40, 40], animate: true });
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1386,10 +1622,65 @@ async function saveBackup() {
   showStatus('Backup salvo com sucesso');
 }
 
+function generateKMZ(layer) {
+  // Gera um arquivo KMZ (ZIP contendo KML) para um ponto ou shape
+  let kml = '';
+  if (layer.type === 'point') {
+    kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>${esc(layer.name)}</name>
+    <Placemark>
+      <name>${esc(layer.name)}</name>
+      ${layer.description ? `<description>${esc(layer.description)}</description>` : ''}
+      <Point>
+        <coordinates>${layer.lng},${layer.lat},0</coordinates>
+      </Point>
+    </Placemark>
+  </Document>
+</kml>`;
+  } else if (layer.type === 'shape' && layer.geojson) {
+    // Converte GeoJSON para KML simplificado (apenas Polygon/LineString)
+    try {
+      const gj = typeof layer.geojson === 'string' ? JSON.parse(layer.geojson) : layer.geojson;
+      const geom = gj.geometry || gj;
+      let coordsStr = '';
+      if (geom.type === 'Polygon') {
+        coordsStr = geom.coordinates[0].map(c => `${c[1]},${c[0]},0`).join(' ');
+      } else if (geom.type === 'LineString') {
+        coordsStr = geom.coordinates.map(c => `${c[1]},${c[0]},0`).join(' ');
+      } else if (geom.type === 'MultiPolygon') {
+        coordsStr = geom.coordinates[0][0].map(c => `${c[1]},${c[0]},0`).join(' ');
+      }
+      const geomTag = geom.type.includes('Polygon') ? 'Polygon' : 'LineString';
+      kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>${esc(layer.name)}</name>
+    <Placemark>
+      <name>${esc(layer.name)}</name>
+      <Style><LineStyle><color>ff${layer.color?.replace('#','') || '8b5cf6'}</color><width>2</width></LineStyle>
+      <PolyStyle><color>${Math.round((layer.opacity||0.5)*255).toString(16).padStart(2,'0')}${layer.color?.replace('#','') || '8b5cf6'}</color></PolyStyle></Style>
+      <${geomTag}><coordinates>${coordsStr}</coordinates></${geomTag}>
+    </Placemark>
+  </Document>
+</kml>`;
+    } catch(e) {
+      console.warn('Erro ao gerar KMZ para shape', e);
+      return null;
+    }
+  } else {
+    return null;
+  }
+
+  const zip = new JSZip();
+  zip.file('doc.kml', kml);
+  return zip.generateAsync({ type: 'blob' });
+}
+
 async function saveFileToArquivos(file) {
   if (!saveDirHandle) return;
   try {
-    // Cria (ou obtém) a subpasta "Arquivos" dentro da pasta save
     let arquivosDir;
     try {
       arquivosDir = await saveDirHandle.getDirectoryHandle('Arquivos', { create: true });
@@ -1397,9 +1688,7 @@ async function saveFileToArquivos(file) {
       console.warn('[AquaMap] Não foi possível criar subpasta Arquivos:', e);
       return;
     }
-    // Lê o conteúdo do arquivo
     const arrayBuffer = await file.arrayBuffer();
-    // Salva com o nome original do arquivo
     const fileHandle = await arquivosDir.getFileHandle(file.name, { create: true });
     const writable = await fileHandle.createWritable();
     await writable.write(arrayBuffer);
@@ -1423,7 +1712,6 @@ async function handleImport(file) {
   else if (ext === 'kml') await importKML(file);
   else if (ext === 'kmz') await importKMZ(file);
   else { showStatus('Use .json, .kml ou .kmz', 'error'); return; }
-  // Copia o arquivo importado para Pontos conferencia\save\Arquivos
   await saveFileToArquivos(file);
 }
 
@@ -1435,7 +1723,6 @@ async function importJSON(file) {
   if (!layers.length) { showStatus('Arquivo sem camadas', 'error'); return; }
   if (!confirm(`Importar ${layers.length} camada(s)? Será adicionado aos dados existentes.`)) return;
 
-  // Sort: parents first
   const sorted = [...layers].sort((a,b) => (!a.parentId && b.parentId) ? -1 : (a.parentId && !b.parentId) ? 1 : 0);
   const idMap = {};
   let mo = await getMaxOrder();
@@ -1452,10 +1739,13 @@ async function importJSON(file) {
       order: (mo += 10),
       description: l.description||'',
       collectedAt: l.collectedAt||'',
+      geojson: l.geojson || '',
+      shapeType: l.shapeType || '',
+      opacity: l.opacity != null ? l.opacity : 0.5,
       createdAt: new Date()
     });
     idMap[oldId] = newId;
-    if (l.type === 'point') { const s = await db.layers.get(newId); addMarkerToMap(s); }
+    if (l.type === 'point' || l.type === 'shape') { const s = await db.layers.get(newId); addMarkerToMap(s); }
     else expandedFolders.add(newId);
   }
   await renderTree();
@@ -1486,10 +1776,18 @@ async function importKMLText(text, sourceName) {
   const parseErr = doc.querySelector('parsererror');
   if (parseErr) { showStatus('KML inválido ou corrompido', 'error'); return; }
   const pms  = doc.getElementsByTagName('Placemark');
-  if (!pms.length) { showStatus('Nenhum ponto no KML', 'error'); return; }
-  if (!confirm(`Importar ${pms.length} ponto(s) de "${sourceName}"?`)) return;
+  if (!pms.length) { showStatus('Nenhum elemento no KML', 'error'); return; }
 
-  // Se mais de 1 ponto: cria pasta com o nome do arquivo (sem extensão)
+  // Detecta se há shapes (Polygon, LineString) ou apenas pontos
+  let hasShapes = false;
+  for (const pm of pms) {
+    if (pm.getElementsByTagName('Polygon').length > 0 || pm.getElementsByTagName('LineString').length > 0) {
+      hasShapes = true; break;
+    }
+  }
+
+  if (!confirm(`Importar ${pms.length} elemento(s) de "${sourceName}"?`)) return;
+
   let parentFolderId = null;
   if (pms.length > 1) {
     const folderName = sourceName.replace(/\.(kmz|kml|json)$/i, '').trim() || sourceName;
@@ -1509,9 +1807,37 @@ async function importKMLText(text, sourceName) {
 
   let count = 0;
   for (const pm of pms) {
-    const name   = pm.getElementsByTagName('name')[0]?.textContent?.trim() || `Ponto ${count+1}`;
+    const name   = pm.getElementsByTagName('name')[0]?.textContent?.trim() || `Elemento ${count+1}`;
     const coords = pm.getElementsByTagName('coordinates')[0]?.textContent?.trim();
-    if (coords) {
+    const polygon = pm.getElementsByTagName('Polygon')[0];
+    const lineString = pm.getElementsByTagName('LineString')[0];
+
+    if (polygon || lineString) {
+      // Importar como shape
+      const geomEl = polygon || lineString;
+      const geomType = polygon ? 'Polygon' : 'LineString';
+      const outerCoords = geomEl.getElementsByTagName('coordinates')[0]?.textContent?.trim();
+      if (outerCoords) {
+        const points = outerCoords.split(/\s+/).filter(Boolean).map(p => {
+          const [lng, lat] = p.split(',').map(Number);
+          return [lat, lng]; // GeoJSON: [lat, lng]
+        });
+        if (points.length >= 3 || geomType === 'LineString') {
+          const geojson = geomType === 'Polygon'
+            ? { type: 'Feature', geometry: { type: 'Polygon', coordinates: [points] }, properties: {} }
+            : { type: 'Feature', geometry: { type: 'LineString', coordinates: points }, properties: {} };
+          const styleColor = pm.getElementsByTagName('LineStyle')[0]?.getElementsByTagName('color')[0]?.textContent || '#8b5cf6';
+          const styleOpacity = pm.getElementsByTagName('PolyStyle')[0]?.getElementsByTagName('color')[0]?.textContent;
+          let opacity = 0.5;
+          if (styleOpacity && styleOpacity.length === 8) {
+            opacity = parseInt(styleOpacity.substr(0,2), 16) / 255;
+          }
+          await createShape(name, JSON.stringify(geojson), `#${styleColor.slice(-6)}`, opacity, parentFolderId, '', '');
+          count++;
+        }
+      }
+    } else if (coords) {
+      // Ponto
       const p = coords.split(/[\s,]+/).filter(Boolean);
       const lng = parseFloat(p[0]), lat = parseFloat(p[1]);
       if (!isNaN(lat) && !isNaN(lng)) {
@@ -1522,8 +1848,8 @@ async function importKMLText(text, sourceName) {
   }
   await renderTree();
   const msg = parentFolderId
-    ? `${count} ponto(s) importado(s) na pasta "${sourceName.replace(/\.(kmz|kml|json)$/i,'')}"` 
-    : `${count} ponto(s) importado(s) de ${sourceName}`;
+    ? `${count} elemento(s) importado(s) na pasta "${sourceName.replace(/\.(kmz|kml|json)$/i,'')}"` 
+    : `${count} elemento(s) importado(s) de ${sourceName}`;
   showStatus(msg);
 }
 
@@ -1558,6 +1884,10 @@ function setupEvents() {
     document.getElementById('addForm').scrollIntoView({ behavior: 'smooth' });
     document.getElementById('fldCoords').focus();
   });
+  document.getElementById('btnNewShape').addEventListener('click', () => {
+    document.getElementById('addForm').scrollIntoView({ behavior: 'smooth' });
+    document.getElementById('fldShapeCoords').focus();
+  });
   document.getElementById('btnCopy').addEventListener('click', copySelectedLayers);
   document.getElementById('btnPaste').addEventListener('click', () => {
     const pid = selectedIds.size === 1 ? [...selectedIds][0] : null;
@@ -1567,12 +1897,24 @@ function setupEvents() {
 
   // Form
   document.getElementById('btnAddPoints').addEventListener('click', addPointsFromForm);
+  document.getElementById('btnAddShape').addEventListener('click', addShapeFromForm);
   document.getElementById('btnClearForm').addEventListener('click', () => {
     document.getElementById('fldName').value = '';
     document.getElementById('fldCoords').value = '';
     document.getElementById('fldMonth').value = '';
+    document.getElementById('fldShapeName').value = '';
+    document.getElementById('fldShapeCoords').value = '';
     showStatus('Formulário limpo', 'info');
   });
+
+  // Shape opacity slider
+  const opacitySlider = document.getElementById('fldShapeOpacity');
+  const opacityVal    = document.getElementById('opacityValue');
+  if (opacitySlider && opacityVal) {
+    opacitySlider.addEventListener('input', () => {
+      opacityVal.textContent = opacitySlider.value;
+    });
+  }
 
   // Map controls
   document.getElementById('btnCenter').addEventListener('click', () =>
@@ -1626,6 +1968,12 @@ function setupEvents() {
     document.getElementById('fldCoords').focus();
     hideCtx();
   });
+  document.getElementById('cx-newShapeHere').addEventListener('click', () => {
+    if (ctxTarget?.id) document.getElementById('fldShapeFolder').value = ctxTarget.id;
+    document.getElementById('addForm').scrollIntoView({ behavior: 'smooth' });
+    document.getElementById('fldShapeCoords').focus();
+    hideCtx();
+  });
   document.getElementById('cx-copy').addEventListener('click', () => {
     if (selectedIds.size > 1) copySelectedLayers();
     else if (ctxTarget?.id) copyLayerById(ctxTarget.id);
@@ -1641,7 +1989,12 @@ function setupEvents() {
     if (ctxTarget?.id) showColorPicker(ctxTarget.id, selectedIds.size > 1); hideCtx();
   });
   document.getElementById('cx-center').addEventListener('click', () => {
-    if (ctxTarget?.id) centerOnPoint(ctxTarget.id); hideCtx();
+    if (ctxTarget?.id) {
+      const lType = ctxTarget.layerType;
+      if (lType === 'point') centerOnPoint(ctxTarget.id);
+      else if (lType === 'shape') centerOnShape(ctxTarget.id);
+    }
+    hideCtx();
   });
   document.getElementById('cx-delete').addEventListener('click', () => {
     if (selectedIds.size > 1) deleteSelectedLayers();
@@ -1707,8 +2060,35 @@ function setupEvents() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// PASTA DE SAVE AUTOMÁTICO
+// PASTA DE SAVE AUTOMÁTICO (ESTRUTURA ESPELHADA)
 // ═══════════════════════════════════════════════════════════
+
+// Helper: caminho da pasta a partir da raiz, usando nomes de pastas
+async function getFolderPath(folderId) {
+  if (!folderId) return [];
+  const path = [];
+  let current = await db.layers.get(folderId);
+  while (current && current.parentId) {
+    path.unshift(current.name);
+    current = await db.layers.get(current.parentId);
+  }
+  if (current) path.unshift(current.name);
+  return path;
+}
+
+// Helper: obter ou criar diretório recursivamente
+async function getOrCreateDirPath(rootHandle, pathParts) {
+  let current = rootHandle;
+  for (const part of pathParts) {
+    try {
+      current = await current.getDirectoryHandle(part, { create: true });
+    } catch (e) {
+      console.warn('Erro ao criar/acessar diretório', part, e);
+      return null;
+    }
+  }
+  return current;
+}
 
 async function selectSaveFolder() {
   if (!('showDirectoryPicker' in window)) {
@@ -1718,7 +2098,10 @@ async function selectSaveFolder() {
   try {
     saveDirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
     updateSaveFolderUI();
-    showStatus(`Save automático em: ${saveDirHandle.name}`, 'info');
+    showStatus(`Save automático em: ${saveDirHandle.name}. Importando dados existentes...`, 'info');
+    await importFromDirectory(saveDirHandle, []);
+    await renderTree();
+    showStatus(`Dados importados da pasta "${saveDirHandle.name}"`, 'success');
     await autoSave();
   } catch (e) {
     if (e.name !== 'AbortError') showStatus('Erro ao selecionar pasta: ' + e.message, 'error');
@@ -1739,21 +2122,231 @@ function updateSaveFolderUI() {
   }
 }
 
+// Varredura recursiva da pasta base, importando arquivos .kmz, .kml, .json
+async function importFromDirectory(dirHandle, parentPath) {
+  try {
+    const entries = [];
+    // Itera sobre as entradas
+    for await (const [name, handle] of dirHandle.entries()) {
+      entries.push({ name, handle });
+    }
+
+    // Primeiro processa pastas (para criar a hierarquia)
+    for (const entry of entries) {
+      if (entry.handle.kind === 'directory') {
+        // Cria a pasta no banco se não existir
+        const existingFolder = (await db.layers.toArray()).find(l =>
+          l.type === 'folder' && l.name === entry.name &&
+          (parentPath.length === 0 ? !l.parentId : (await getFolderPath(l.parentId)).join('/') === parentPath.join('/'))
+        );
+        let folderId;
+        if (!existingFolder) {
+          // Descobre o parentId baseado no parentPath
+          let parentId = null;
+          if (parentPath.length > 0) {
+            const parentFolder = (await db.layers.toArray()).find(l =>
+              l.type === 'folder' && l.name === parentPath[parentPath.length-1]
+            );
+            if (parentFolder) parentId = parentFolder.id;
+          }
+          folderId = await db.layers.add({
+            name: entry.name,
+            type: 'folder',
+            parentId: parentId,
+            color: '#f59e0b',
+            visible: true,
+            expanded: true,
+            order: (await getMaxOrder()) + 10,
+            createdAt: new Date()
+          });
+          expandedFolders.add(folderId);
+        } else {
+          folderId = existingFolder.id;
+        }
+        // Recursão na subpasta
+        await importFromDirectory(entry.handle, [...parentPath, entry.name]);
+      }
+    }
+
+    // Depois processa arquivos
+    for (const entry of entries) {
+      if (entry.handle.kind === 'file') {
+        const fileName = entry.name;
+        const ext = fileName.split('.').pop().toLowerCase();
+        if (['kmz', 'kml', 'json'].includes(ext)) {
+          const file = await entry.handle.getFile();
+          // Descobre a pasta pai no banco
+          let parentId = null;
+          if (parentPath.length > 0) {
+            const parentFolder = (await db.layers.toArray()).find(l =>
+              l.type === 'folder' && l.name === parentPath[parentPath.length-1]
+            );
+            if (parentFolder) parentId = parentFolder.id;
+          }
+          if (ext === 'json') {
+            const text = await file.text();
+            let data;
+            try { data = JSON.parse(text); } catch { continue; }
+            if (data.layers) {
+              // Se for um backup do AquaMap, importa as camadas
+              const sorted = [...data.layers].sort((a,b) => (!a.parentId && b.parentId) ? -1 : (a.parentId && !b.parentId) ? 1 : 0);
+              const idMap = {};
+              let mo = await getMaxOrder();
+              for (const l of sorted) {
+                const oldId = l.id;
+                const newId = await db.layers.add({
+                  name: l.name||'Sem nome', type: l.type||'point',
+                  parentId: l.parentId ? (idMap[l.parentId] || parentId) : parentId,
+                  lat: l.lat||0, lng: l.lng||0,
+                  color: l.color||'#0891b2',
+                  visible: l.visible !== false,
+                  expanded: l.expanded !== false,
+                  order: (mo += 10),
+                  description: l.description||'',
+                  collectedAt: l.collectedAt||'',
+                  geojson: l.geojson || '',
+                  shapeType: l.shapeType || '',
+                  opacity: l.opacity != null ? l.opacity : 0.5,
+                  createdAt: new Date()
+                });
+                idMap[oldId] = newId;
+                if (l.type === 'point' || l.type === 'shape') {
+                  const s = await db.layers.get(newId);
+                  addMarkerToMap(s);
+                } else if (l.type === 'folder') {
+                  expandedFolders.add(newId);
+                }
+              }
+            }
+          } else {
+            // KML ou KMZ
+            if (ext === 'kmz') {
+              const zip = await JSZip.loadAsync(file);
+              const kmlEntry = Object.values(zip.files).find(f => !f.dir && f.name.toLowerCase().endsWith('.kml'));
+              if (kmlEntry) {
+                const text = await kmlEntry.async('text');
+                await importKMLTextSilent(text, fileName, parentId);
+              }
+            } else {
+              const text = await file.text();
+              await importKMLTextSilent(text, fileName, parentId);
+            }
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Erro ao importar da pasta:', e);
+  }
+}
+
+// Versão silenciosa do importKMLText que não pede confirmação e retorna contagem
+async function importKMLTextSilent(text, sourceName, parentId) {
+  try {
+    const doc = new DOMParser().parseFromString(text, 'application/xml');
+    const pms = doc.getElementsByTagName('Placemark');
+    if (!pms.length) return 0;
+    let count = 0;
+    for (const pm of pms) {
+      const name = pm.getElementsByTagName('name')[0]?.textContent?.trim() || `Elemento ${count+1}`;
+      const coords = pm.getElementsByTagName('coordinates')[0]?.textContent?.trim();
+      const polygon = pm.getElementsByTagName('Polygon')[0];
+      const lineString = pm.getElementsByTagName('LineString')[0];
+      if (polygon || lineString) {
+        const geomEl = polygon || lineString;
+        const geomType = polygon ? 'Polygon' : 'LineString';
+        const outerCoords = geomEl.getElementsByTagName('coordinates')[0]?.textContent?.trim();
+        if (outerCoords) {
+          const points = outerCoords.split(/\s+/).filter(Boolean).map(p => {
+            const [lng, lat] = p.split(',').map(Number);
+            return [lat, lng];
+          });
+          if (points.length >= 3 || geomType === 'LineString') {
+            const geojson = geomType === 'Polygon'
+              ? { type: 'Feature', geometry: { type: 'Polygon', coordinates: [points] }, properties: {} }
+              : { type: 'Feature', geometry: { type: 'LineString', coordinates: points }, properties: {} };
+            await createShapeSilent(name, JSON.stringify(geojson), '#8b5cf6', 0.5, parentId);
+            count++;
+          }
+        }
+      } else if (coords) {
+        const p = coords.split(/[\s,]+/).filter(Boolean);
+        const lng = parseFloat(p[0]), lat = parseFloat(p[1]);
+        if (!isNaN(lat) && !isNaN(lng)) {
+          await createPointSilent(name, lat, lng, '#0891b2', parentId);
+          count++;
+        }
+      }
+    }
+    return count;
+  } catch (e) {
+    console.warn('Erro silencioso ao importar KML', e);
+    return 0;
+  }
+}
+
+async function createPointSilent(name, lat, lng, color, parentId) {
+  const id = await db.layers.add({
+    name, type: 'point', parentId, lat, lng, color, visible: true,
+    order: (await getMaxOrder()) + 10, description: '', collectedAt: '', createdAt: new Date()
+  });
+  const saved = await db.layers.get(id);
+  addMarkerToMap(saved);
+}
+
+async function createShapeSilent(name, geojsonStr, color, opacity, parentId) {
+  const geojson = JSON.parse(geojsonStr);
+  const shapeType = geojson.geometry ? geojson.geometry.type : (geojson.type || 'Polygon');
+  const id = await db.layers.add({
+    name, type: 'shape', parentId, geojson: geojsonStr, shapeType, color, opacity,
+    visible: true, order: (await getMaxOrder()) + 10, description: '', collectedAt: '', createdAt: new Date()
+  });
+  const saved = await db.layers.get(id);
+  addMarkerToMap(saved);
+}
+
+// Auto-save espelhando a estrutura de pastas/camadas
 async function autoSave() {
   if (!saveDirHandle) return;
   try {
     const all = await db.layers.toArray();
+    // Salva o JSON completo na raiz como backup
     const content = JSON.stringify(
       { version: '2.0', app: 'AquaMap', exportDate: new Date().toISOString(), layers: all },
       null, 2
     );
-    const fileName = 'aquamap-pontos.json';
-    const fileHandle = await saveDirHandle.getFileHandle(fileName, { create: true });
-    const writable = await fileHandle.createWritable();
-    await writable.write(content);
-    await writable.close();
+    const backupFile = await saveDirHandle.getFileHandle('aquamap-pontos.json', { create: true });
+    const backupWritable = await backupFile.createWritable();
+    await backupWritable.write(content);
+    await backupWritable.close();
+
+    // Agora percorre as camadas e cria pastas/arquivos KMZ espelhados
+    // Primeiro, pastas (folders) criam diretórios
+    const folders = all.filter(l => l.type === 'folder');
+    for (const folder of folders) {
+      const pathParts = await getFolderPath(folder.id);
+      if (pathParts.length > 0) {
+        await getOrCreateDirPath(saveDirHandle, pathParts);
+      }
+    }
+
+    // Pontos e shapes geram arquivos KMZ dentro de suas respectivas pastas
+    const items = all.filter(l => l.type === 'point' || l.type === 'shape');
+    for (const item of items) {
+      const pathParts = item.parentId ? await getFolderPath(item.parentId) : [];
+      const dirHandle = pathParts.length > 0 ? await getOrCreateDirPath(saveDirHandle, pathParts) : saveDirHandle;
+      if (!dirHandle) continue;
+      const kmzBlob = await generateKMZ(item);
+      if (kmzBlob) {
+        const safeName = item.name.replace(/[<>:"/\\|?*]/g, '_') + '.kmz';
+        const fileHandle = await dirHandle.getFileHandle(safeName, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(kmzBlob);
+        await writable.close();
+      }
+    }
+
   } catch (e) {
-    // Permission may have expired — re-request
     if (e.name === 'NotAllowedError') {
       try {
         const perm = await saveDirHandle.requestPermission({ mode: 'readwrite' });
@@ -1783,7 +2376,7 @@ async function init() {
     // Load existing data
     const all = await db.layers.toArray();
     for (const l of all) {
-      if (l.type === 'point')  addMarkerToMap(l);
+      if (l.type === 'point' || l.type === 'shape') addMarkerToMap(l);
       if (l.type === 'folder' && l.expanded !== false) expandedFolders.add(l.id);
     }
 
