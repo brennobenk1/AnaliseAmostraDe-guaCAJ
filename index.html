@@ -1841,6 +1841,62 @@ async function importKMLText(text, sourceName) {
 // PASTA DE SAVE AUTOMÁTICO (ESTRUTURA ESPELHADA)
 // ═══════════════════════════════════════════════════════════
 
+// ── Ordenação topológica correta para hierarquias multi-nível ──
+function topoSortLayers(layers) {
+  const byId = Object.fromEntries(layers.map(l => [String(l.id), l]));
+  const visited = new Set();
+  const result = [];
+  function visit(l) {
+    if (!l || visited.has(String(l.id))) return;
+    visited.add(String(l.id));
+    if (l.parentId && byId[String(l.parentId)]) visit(byId[String(l.parentId)]);
+    result.push(l);
+  }
+  layers.forEach(l => visit(l));
+  return result;
+}
+
+// ── Importa camadas de um backup JSON respeitando hierarquia ──
+async function importLayersFromBackup(layers, defaultParentId = null) {
+  if (!layers || !layers.length) return 0;
+  const ordered = topoSortLayers(layers);
+  const idMap = {};
+  let mo = await getMaxOrder();
+  let count = 0;
+  for (const l of ordered) {
+    const oldId = String(l.id);
+    const newParentId = l.parentId
+      ? (idMap[String(l.parentId)] ?? defaultParentId)
+      : defaultParentId;
+    const newId = await db.layers.add({
+      name: l.name || 'Sem nome',
+      type: l.type || 'point',
+      parentId: newParentId,
+      lat: l.lat || 0,
+      lng: l.lng || 0,
+      color: l.color || '#0891b2',
+      visible: l.visible !== false,
+      expanded: l.expanded !== false,
+      order: (mo += 10),
+      description: l.description || '',
+      collectedAt: l.collectedAt || '',
+      geojson: l.geojson || '',
+      shapeType: l.shapeType || '',
+      opacity: l.opacity != null ? l.opacity : 0.5,
+      createdAt: new Date()
+    });
+    idMap[oldId] = newId;
+    if (l.type === 'point' || l.type === 'shape') {
+      const s = await db.layers.get(newId);
+      addMarkerToMap(s);
+    } else if (l.type === 'folder') {
+      expandedFolders.add(newId);
+    }
+    count++;
+  }
+  return count;
+}
+
 async function selectSaveFolder() {
   if (!('showDirectoryPicker' in window)) {
     showStatus('Seu navegador não suporta seleção de pasta (use Chrome/Edge)', 'error');
@@ -1849,10 +1905,40 @@ async function selectSaveFolder() {
   try {
     saveDirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
     updateSaveFolderUI();
-    showStatus(`Importando dados da pasta "${saveDirHandle.name}"...`, 'info');
-    await importFromDirectory(saveDirHandle, null);
+    showStatus(`Conectando à pasta "${saveDirHandle.name}"…`, 'info');
+
+    let importedCount = 0;
+
+    // Prioridade 1: carregar do backup JSON completo na raiz da pasta
+    let usedBackup = false;
+    try {
+      const jsonHandle = await saveDirHandle.getFileHandle('aquamap-pontos.json');
+      const jsonFile = await jsonHandle.getFile();
+      const text = await jsonFile.text();
+      const data = JSON.parse(text);
+      if (data && data.layers && data.layers.length > 0) {
+        showStatus('Carregando backup…', 'info');
+        importedCount = await importLayersFromBackup(data.layers, null);
+        usedBackup = true;
+      }
+    } catch (e) {
+      if (e.name !== 'NotFoundError' && e.name !== 'TypeMismatchError') {
+        console.warn('[AquaMap] Erro ao ler backup JSON:', e);
+      }
+      // Sem backup: faz varredura recursiva de KMZ/KML
+    }
+
+    // Prioridade 2 (fallback): varredura recursiva quando não há backup JSON
+    if (!usedBackup) {
+      importedCount = await importFromDirectory(saveDirHandle, null);
+    }
+
     await renderTree();
-    showStatus(`Dados importados da pasta "${saveDirHandle.name}"`, 'success');
+    if (importedCount > 0) {
+      showStatus(`${importedCount} camada(s) carregada(s) de "${saveDirHandle.name}"`, 'success');
+    } else {
+      showStatus(`Pasta "${saveDirHandle.name}" conectada — nenhum dado encontrado para importar`, 'info');
+    }
     await autoSave();
   } catch (e) {
     if (e.name !== 'AbortError') showStatus('Erro ao selecionar pasta: ' + e.message, 'error');
@@ -1860,16 +1946,16 @@ async function selectSaveFolder() {
 }
 
 async function importFromDirectory(dirHandle, parentId) {
+  let totalCount = 0;
   try {
     const entries = [];
     for await (const [name, handle] of dirHandle.entries()) {
       entries.push({ name, handle });
     }
 
-    // Primeiro, processa subpastas (cria pastas no banco)
+    // Primeiro, processa subpastas (cria pastas no banco e recursa)
     for (const entry of entries) {
       if (entry.handle.kind === 'directory') {
-        // Verifica se já existe uma pasta com mesmo nome e mesmo parentId
         const existing = (await db.layers.toArray()).find(l =>
           l.type === 'folder' && l.name === entry.name && l.parentId === parentId
         );
@@ -1886,11 +1972,12 @@ async function importFromDirectory(dirHandle, parentId) {
             createdAt: new Date()
           });
           expandedFolders.add(folderId);
+          totalCount++;
         } else {
           folderId = existing.id;
         }
         // Recursão com o folderId como novo parent
-        await importFromDirectory(entry.handle, folderId);
+        totalCount += await importFromDirectory(entry.handle, folderId);
       }
     }
 
@@ -1898,64 +1985,50 @@ async function importFromDirectory(dirHandle, parentId) {
     for (const entry of entries) {
       if (entry.handle.kind === 'file') {
         const fileName = entry.name;
+        // O backup principal da raiz é tratado em selectSaveFolder — evita duplicatas
+        if (parentId === null && fileName === 'aquamap-pontos.json') continue;
+
         const ext = fileName.split('.').pop().toLowerCase();
-        if (['kmz', 'kml', 'json'].includes(ext)) {
+        if (!['kmz', 'kml', 'json'].includes(ext)) continue;
+
+        try {
           const file = await entry.handle.getFile();
           if (ext === 'json') {
             const text = await file.text();
             let data;
             try { data = JSON.parse(text); } catch { continue; }
-            if (data.layers) {
-              // Backup do AquaMap: importa todas as camadas mantendo hierarquia
-              const sorted = [...data.layers].sort((a,b) => (!a.parentId && b.parentId) ? -1 : (a.parentId && !b.parentId) ? 1 : 0);
-              const idMap = {};
-              let mo = await getMaxOrder();
-              for (const l of sorted) {
-                const oldId = l.id;
-                const newId = await db.layers.add({
-                  name: l.name||'Sem nome', type: l.type||'point',
-                  parentId: l.parentId ? (idMap[l.parentId] || parentId) : parentId,
-                  lat: l.lat||0, lng: l.lng||0,
-                  color: l.color||'#0891b2',
-                  visible: l.visible !== false,
-                  expanded: l.expanded !== false,
-                  order: (mo += 10),
-                  description: l.description||'',
-                  collectedAt: l.collectedAt||'',
-                  geojson: l.geojson || '',
-                  shapeType: l.shapeType || '',
-                  opacity: l.opacity != null ? l.opacity : 0.5,
-                  createdAt: new Date()
-                });
-                idMap[oldId] = newId;
-                if (l.type === 'point' || l.type === 'shape') {
-                  const s = await db.layers.get(newId);
-                  addMarkerToMap(s);
-                } else if (l.type === 'folder') {
-                  expandedFolders.add(newId);
-                }
-              }
+            if (data && data.layers && data.layers.length > 0) {
+              // JSON de subpasta: importa com hierarquia preservada, raízes ancoradas na pasta atual
+              totalCount += await importLayersFromBackup(data.layers, parentId);
             }
-          } else {
-            // KML ou KMZ
-            if (ext === 'kmz') {
+          } else if (ext === 'kmz') {
+            try {
               const zip = await JSZip.loadAsync(file);
-              const kmlEntry = Object.values(zip.files).find(f => !f.dir && f.name.toLowerCase().endsWith('.kml'));
+              const kmlEntry = Object.values(zip.files).find(f =>
+                !f.dir && f.name.toLowerCase().endsWith('.kml'));
               if (kmlEntry) {
                 const text = await kmlEntry.async('text');
-                await importKMLTextSilent(text, fileName, parentId);
+                const n = await importKMLTextSilent(text, fileName, parentId);
+                totalCount += n;
               }
-            } else {
-              const text = await file.text();
-              await importKMLTextSilent(text, fileName, parentId);
+            } catch (ze) {
+              console.warn('[AquaMap] Erro ao ler KMZ:', fileName, ze);
             }
+          } else {
+            // KML
+            const text = await file.text();
+            const n = await importKMLTextSilent(text, fileName, parentId);
+            totalCount += n;
           }
+        } catch (fe) {
+          console.warn('[AquaMap] Erro ao processar arquivo:', fileName, fe);
         }
       }
     }
   } catch (e) {
-    console.warn('Erro ao importar da pasta:', e);
+    console.warn('[AquaMap] Erro ao varrer pasta:', dirHandle?.name, e);
   }
+  return totalCount;
 }
 
 async function importKMLTextSilent(text, sourceName, parentId) {
