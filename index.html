@@ -1678,7 +1678,7 @@ async function importJSON(file) {
       lat: l.lat||0, lng: l.lng||0,
       color: l.color||'#0891b2',
       visible: l.visible !== false,
-      expanded: l.expanded !== false,
+      expanded: false,
       order: (mo += 10),
       description: l.description||'',
       collectedAt: l.collectedAt||'',
@@ -1689,7 +1689,6 @@ async function importJSON(file) {
     });
     idMap[oldId] = newId;
     if (l.type === 'point' || l.type === 'shape') { const s = await db.layers.get(newId); addMarkerToMap(s); }
-    else expandedFolders.add(newId);
   }
   await renderTree();
   showStatus(`${layers.length} camada(s) importada(s)`);
@@ -1734,11 +1733,10 @@ async function importKMLText(text, sourceName, parentFolderId = null) {
       parentId: null,
       color: '#f59e0b',
       visible: true,
-      expanded: true,
+      expanded: false,
       order: (await getMaxOrder()) + 10,
       createdAt: new Date()
     });
-    expandedFolders.add(folderId);
     pushUndo('create', { id: folderId });
   }
 
@@ -1833,7 +1831,7 @@ async function importLayersFromBackup(layers, defaultParentId = null) {
       lng: l.lng || 0,
       color: l.color || '#0891b2',
       visible: l.visible !== false,
-      expanded: l.expanded !== false,
+      expanded: false,
       order: (mo += 10),
       description: l.description || '',
       collectedAt: l.collectedAt || '',
@@ -1846,8 +1844,6 @@ async function importLayersFromBackup(layers, defaultParentId = null) {
     if (l.type === 'point' || l.type === 'shape') {
       const s = await db.layers.get(newId);
       addMarkerToMap(s);
-    } else if (l.type === 'folder') {
-      expandedFolders.add(newId);
     }
     count++;
   }
@@ -1933,11 +1929,10 @@ async function importFromDirectory(dirHandle, parentId) {
             parentId: parentId,
             color: '#f59e0b',
             visible: true,
-            expanded: true,
+            expanded: false,
             order: (await getMaxOrder()) + 10,
             createdAt: new Date()
           });
-          expandedFolders.add(folderId);
           totalCount++;
         }
         totalCount += await importFromDirectory(entry.handle, folderId);
@@ -2013,11 +2008,10 @@ async function importKMLSilent(text, baseName, parentId) {
         parentId: parentId,
         color: '#0891b2',
         visible: true,
-        expanded: true,
+        expanded: false,
         order: (await getMaxOrder()) + 10,
         createdAt: new Date()
       });
-      expandedFolders.add(groupFolderId);
     }
 
     let count = 0;
