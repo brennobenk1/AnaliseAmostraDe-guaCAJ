@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AquaMap — Sistema de Pontos de Coleta</title>
-<!-- v3 -->
+<!-- v4-fixed -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -217,10 +217,10 @@ body{font-family:'IBM Plex Sans',sans-serif;font-size:14px;background:var(--bg0)
     <button class="tbtn" id="btnHideAll" title="Ocultar todos"><i class="fas fa-eye-slash"></i></button>
     <div class="tsep"></div>
     <button class="tbtn" id="btnBackup" title="Exportar backup"><i class="fas fa-download"></i><span>Backup</span></button>
-    <button class="tbtn" id="btnImportBtn" title="Importar JSON/KML/KMZ"><i class="fas fa-upload"></i><span>Importar</span></button>
+    <button class="tbtn" id="btnImportBtn" title="Importar JSON/KML/KMZ (pontos e shapes)"><i class="fas fa-upload"></i><span>Importar</span></button>
     <input type="file" id="importFileInput" accept=".json,.kml,.kmz" style="display:none;">
     <div class="tsep"></div>
-    <button class="tbtn" id="btnSaveFolder" title="Selecionar pasta de save automático (OneDrive - CAJ\GQM - CAS\05. Monitoramentos\01 - Águas e efluentes\Pontos conferencia)"><i class="fas fa-folder-open"></i><span id="saveFolderLabel">Pasta Save</span></button>
+    <button class="tbtn" id="btnSaveFolder" title="Selecionar pasta de save automático"><i class="fas fa-folder-open"></i><span id="saveFolderLabel">Pasta Save</span></button>
   </div>
 </header>
 
@@ -412,10 +412,6 @@ const PRESET_COLORS = [
 // STATE
 // ═══════════════════════════════════════════════════════════
 
-// ═══════════════════════════════════════════════════════════
-// UI HELPERS (defined early to avoid hoisting issues)
-// ═══════════════════════════════════════════════════════════
-
 function updateSaveFolderUI() {
   const btn   = document.getElementById('btnSaveFolder');
   const label = document.getElementById('saveFolderLabel');
@@ -430,24 +426,23 @@ function updateSaveFolderUI() {
   }
 }
 
-
 let db, map, markersLayer, shapesLayer;
-let markers = {};             // id -> { marker, type:'point'|'shape' }
+let markers = {};
 let selectedIds = new Set();
-let clipboard = [];           // deep-copied layer trees
+let clipboard = [];
 let expandedFolders = new Set();
 let showLabels = true;
 let saveDirHandle  = null;
 let autoSaveTimer  = null;
 let undoStack = [];
-let ctxTarget = null;         // { type:'layer'|'empty', id, layerType }
+let ctxTarget = null;
 let editingLayerId = null;
 let colorTargetId = null;
 let colorTargetType = 'single';
 let dragSrcId = null;
 let lastSelectedId = null;
 let toastTimer = null;
-let folderModalMode = 'create'; // 'create'|'edit'
+let folderModalMode = 'create';
 
 // ═══════════════════════════════════════════════════════════
 // UTILITIES
@@ -519,7 +514,6 @@ function initMap() {
   markersLayer = L.layerGroup().addTo(map);
   shapesLayer = L.layerGroup().addTo(map);
 
-  // Shift+Click → add point
   map.on('click', (e) => {
     if (e.originalEvent.shiftKey) promptAddPointFromMap(e.latlng);
   });
@@ -542,7 +536,6 @@ function makeIcon(color) {
 function buildPopupContent(layer) {
   const div = document.createElement('div');
   div.className = 'mpop';
-
   let periodHtml = '';
   if (layer.collectedAt) {
     const [y, m] = layer.collectedAt.split('-');
@@ -551,7 +544,6 @@ function buildPopupContent(layer) {
   }
   const descHtml = layer.description
     ? `<div class="mpop-desc">${esc(layer.description)}</div>` : '';
-
   div.innerHTML = `
     <div class="mpop-title"><i class="fas fa-tint" style="color:#22d3ee;font-size:10px;margin-right:5px;"></i>${esc(layer.name)}</div>
     <div class="mpop-coords">${(layer.lat||0).toFixed(6)}, ${(layer.lng||0).toFixed(6)}</div>
@@ -590,7 +582,9 @@ function addMarkerToMap(layer) {
       if (el) { el.classList.add('map-hi'); el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
     });
     if (layer.visible !== false) markersLayer.addLayer(marker);
-    marker.bindTooltip(layer.name, { permanent: true, direction: 'top', className: 'point-label', offset: [0, -30] });
+    if (showLabels) {
+      marker.bindTooltip(layer.name, { permanent: true, direction: 'top', className: 'point-label', offset: [0, -30] });
+    }
     markers[layer.id] = { marker, type: 'point' };
   } else if (layer.type === 'shape') {
     if (!layer.geojson) return;
@@ -625,11 +619,8 @@ function addMarkerToMap(layer) {
 function removeMarkerFromMap(id) {
   if (markers[id]) {
     const obj = markers[id];
-    if (obj.type === 'point') {
-      markersLayer.removeLayer(obj.marker);
-    } else if (obj.type === 'shape') {
-      shapesLayer.removeLayer(obj.marker);
-    }
+    if (obj.type === 'point') markersLayer.removeLayer(obj.marker);
+    else if (obj.type === 'shape') shapesLayer.removeLayer(obj.marker);
     delete markers[id];
   }
 }
@@ -649,11 +640,8 @@ function setMarkerVisibility(id, visible) {
 function setMarkerColor(id, color) {
   if (!markers[id]) return;
   const obj = markers[id];
-  if (obj.type === 'point') {
-    obj.marker.setIcon(makeIcon(color));
-  } else if (obj.type === 'shape') {
-    obj.marker.setStyle({ color: color, fillColor: color });
-  }
+  if (obj.type === 'point') obj.marker.setIcon(makeIcon(color));
+  else if (obj.type === 'shape') obj.marker.setStyle({ color: color, fillColor: color });
 }
 
 function setMarkerOpacity(id, opacity) {
@@ -728,14 +716,12 @@ function buildItemHTML(layer, all, depth, q) {
   const isExp    = expandedFolders.has(layer.id);
   const children = all.filter(l => l.parentId === layer.id).sort((a,b)=>(a.order||0)-(b.order||0));
 
-  // Search
   let sClass = '';
   if (q) {
     if (layer.name.toLowerCase().includes(q)) sClass = 's-match';
     else if (!isFolder) sClass = 's-miss';
   }
 
-  // Visibility
   let vClass = 'vis-on', vIcon = 'fa-eye';
   if (isFolder) {
     const pts = getAllPointsInFolder(layer.id, all);
@@ -748,7 +734,6 @@ function buildItemHTML(layer, all, depth, q) {
     if (layer.visible === false) { vClass = 'vis-off'; vIcon = 'fa-eye-slash'; }
   }
 
-  // Meta line
   let meta = '';
   if (isFolder) {
     meta = `${children.length} item${children.length !== 1 ? 's' : ''}`;
@@ -819,7 +804,6 @@ function attachTreeEvents() {
   document.querySelectorAll('.li').forEach(el => {
     const id = parseInt(el.dataset.id);
 
-    // ── Click (select)
     el.addEventListener('click', (e) => {
       if (e.ctrlKey || e.metaKey) {
         selectedIds.has(id) ? selectedIds.delete(id) : selectedIds.add(id);
@@ -845,10 +829,8 @@ function attachTreeEvents() {
       updateSelStat();
     });
 
-    // ── Double click (edit)
     el.addEventListener('dblclick', (e) => { e.stopPropagation(); editLayerById(id); });
 
-    // ── Right click (context menu)
     el.addEventListener('contextmenu', (e) => {
       e.preventDefault(); e.stopPropagation();
       if (!selectedIds.has(id)) {
@@ -861,7 +843,6 @@ function attachTreeEvents() {
       showContextMenu(e.clientX, e.clientY);
     });
 
-    // ── Drag
     el.addEventListener('dragstart', (e) => {
       dragSrcId = id;
       e.dataTransfer.effectAllowed = 'move';
@@ -902,7 +883,6 @@ async function handleDrop(e, targetId) {
   const tgt = await db.layers.get(targetId);
   if (!src || !tgt) { dragSrcId = null; return; }
 
-  // Prevent dropping inside own descendant
   if (src.type === 'folder') {
     const descs = await getAllDescendantIds(dragSrcId);
     if (descs.includes(targetId)) {
@@ -1010,7 +990,15 @@ async function createShape(name, geojsonStr, color, opacity, parentId, desc, mon
     if (geojson.type === 'Polygon' || geojson.type === 'MultiPolygon' || geojson.type === 'LineString' || geojson.type === 'MultiLineString') {
       geojson = { type: 'Feature', geometry: geojson, properties: {} };
     } else if (geojson.type === 'FeatureCollection' && geojson.features && geojson.features.length > 0) {
-      geojson = geojson.features[0];
+      // Import all features from FeatureCollection
+      let count = 0;
+      for (const feat of geojson.features) {
+        const featStr = JSON.stringify(feat);
+        const featName = feat.properties?.name || `${name} ${count+1}`;
+        await createShape(featName, featStr, color, opacity, parentId, desc, month);
+        count++;
+      }
+      return null;
     } else if (geojson.type !== 'Feature') {
       throw new Error('Formato GeoJSON inválido');
     }
@@ -1135,7 +1123,7 @@ function toggleFolder(id) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// CENTER ON POINT / SHAPE
+// CENTER
 // ═══════════════════════════════════════════════════════════
 
 function centerOnPoint(id) {
@@ -1616,7 +1604,7 @@ function fitAllPoints() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// BACKUP / IMPORT
+// BACKUP / IMPORT MANUAL
 // ═══════════════════════════════════════════════════════════
 
 async function saveBackup() {
@@ -1632,59 +1620,7 @@ async function saveBackup() {
   showStatus('Backup salvo com sucesso');
 }
 
-function generateKMZ(layer) {
-  let kml = '';
-  if (layer.type === 'point') {
-    kml = `<?xml version="1.0" encoding="UTF-8"?>
-<kml xmlns="http://www.opengis.net/kml/2.2">
-  <Document>
-    <name>${esc(layer.name)}</name>
-    <Placemark>
-      <name>${esc(layer.name)}</name>
-      ${layer.description ? `<description>${esc(layer.description)}</description>` : ''}
-      <Point>
-        <coordinates>${layer.lng},${layer.lat},0</coordinates>
-      </Point>
-    </Placemark>
-  </Document>
-</kml>`;
-  } else if (layer.type === 'shape' && layer.geojson) {
-    try {
-      const gj = typeof layer.geojson === 'string' ? JSON.parse(layer.geojson) : layer.geojson;
-      const geom = gj.geometry || gj;
-      let coordsStr = '';
-      if (geom.type === 'Polygon') {
-        coordsStr = geom.coordinates[0].map(c => `${c[1]},${c[0]},0`).join(' ');
-      } else if (geom.type === 'LineString') {
-        coordsStr = geom.coordinates.map(c => `${c[1]},${c[0]},0`).join(' ');
-      } else if (geom.type === 'MultiPolygon') {
-        coordsStr = geom.coordinates[0][0].map(c => `${c[1]},${c[0]},0`).join(' ');
-      }
-      const geomTag = geom.type.includes('Polygon') ? 'Polygon' : 'LineString';
-      kml = `<?xml version="1.0" encoding="UTF-8"?>
-<kml xmlns="http://www.opengis.net/kml/2.2">
-  <Document>
-    <name>${esc(layer.name)}</name>
-    <Placemark>
-      <name>${esc(layer.name)}</name>
-      <Style><LineStyle><color>ff${layer.color?.replace('#','') || '8b5cf6'}</color><width>2</width></LineStyle>
-      <PolyStyle><color>${Math.round((layer.opacity||0.5)*255).toString(16).padStart(2,'0')}${layer.color?.replace('#','') || '8b5cf6'}</color></PolyStyle></Style>
-      <${geomTag}><coordinates>${coordsStr}</coordinates></${geomTag}>
-    </Placemark>
-  </Document>
-</kml>`;
-    } catch(e) {
-      return null;
-    }
-  } else {
-    return null;
-  }
-
-  const zip = new JSZip();
-  zip.file('doc.kml', kml);
-  return zip.generateAsync({ type: 'blob' });
-}
-
+// ── Salva o arquivo original importado na subpasta Arquivos/ (sem modificar conteúdo)
 async function saveFileToArquivos(file) {
   if (!saveDirHandle) return;
   try {
@@ -1778,26 +1714,21 @@ async function importKMZ(file) {
   }
 }
 
-async function importKMLText(text, sourceName) {
+// ── Importação KML com suporte a pontos E shapes (polígonos/linhas)
+async function importKMLText(text, sourceName, parentFolderId = null) {
   const doc  = new DOMParser().parseFromString(text, 'application/xml');
   const parseErr = doc.querySelector('parsererror');
-  if (parseErr) { showStatus('KML inválido ou corrompido', 'error'); return; }
+  if (parseErr) { showStatus('KML inválido ou corrompido', 'error'); return 0; }
   const pms  = doc.getElementsByTagName('Placemark');
-  if (!pms.length) { showStatus('Nenhum elemento no KML', 'error'); return; }
+  if (!pms.length) { showStatus('Nenhum elemento no KML', 'error'); return 0; }
 
-  let hasShapes = false;
-  for (const pm of pms) {
-    if (pm.getElementsByTagName('Polygon').length > 0 || pm.getElementsByTagName('LineString').length > 0) {
-      hasShapes = true; break;
-    }
-  }
+  if (!confirm(`Importar ${pms.length} elemento(s) de "${sourceName}"?`)) return 0;
 
-  if (!confirm(`Importar ${pms.length} elemento(s) de "${sourceName}"?`)) return;
-
-  let parentFolderId = null;
-  if (pms.length > 1) {
-    const folderName = sourceName.replace(/\.(kmz|kml|json)$/i, '').trim() || sourceName;
-    parentFolderId = await db.layers.add({
+  // Se mais de 1 elemento e não há pasta pai definida, cria pasta com nome do arquivo
+  let folderId = parentFolderId;
+  if (pms.length > 1 && !folderId) {
+    const folderName = sourceName.replace(/\.(kmz|kml)$/i, '').trim() || sourceName;
+    folderId = await db.layers.add({
       name: folderName,
       type: 'folder',
       parentId: null,
@@ -1807,8 +1738,8 @@ async function importKMLText(text, sourceName) {
       order: (await getMaxOrder()) + 10,
       createdAt: new Date()
     });
-    expandedFolders.add(parentFolderId);
-    pushUndo('create', { id: parentFolderId });
+    expandedFolders.add(folderId);
+    pushUndo('create', { id: folderId });
   }
 
   let count = 0;
@@ -1825,19 +1756,24 @@ async function importKMLText(text, sourceName) {
       if (outerCoords) {
         const points = outerCoords.split(/\s+/).filter(Boolean).map(p => {
           const [lng, lat] = p.split(',').map(Number);
-          return [lat, lng];
+          return [lng, lat]; // GeoJSON usa [lng, lat]
         });
-        if (points.length >= 3 || geomType === 'LineString') {
+        if (points.length >= 2) {
           const geojson = geomType === 'Polygon'
             ? { type: 'Feature', geometry: { type: 'Polygon', coordinates: [points] }, properties: {} }
             : { type: 'Feature', geometry: { type: 'LineString', coordinates: points }, properties: {} };
-          const styleColor = pm.getElementsByTagName('LineStyle')[0]?.getElementsByTagName('color')[0]?.textContent || '#8b5cf6';
-          const styleOpacity = pm.getElementsByTagName('PolyStyle')[0]?.getElementsByTagName('color')[0]?.textContent;
+          // Extrai cor/opacidade do estilo KML se disponível
+          const styleColor = pm.getElementsByTagName('LineStyle')[0]?.getElementsByTagName('color')[0]?.textContent;
+          const polyStyle  = pm.getElementsByTagName('PolyStyle')[0]?.getElementsByTagName('color')[0]?.textContent;
+          let color   = '#8b5cf6';
           let opacity = 0.5;
-          if (styleOpacity && styleOpacity.length === 8) {
-            opacity = parseInt(styleOpacity.substr(0,2), 16) / 255;
+          if (styleColor && styleColor.length >= 6) {
+            color = '#' + styleColor.slice(-6);
           }
-          await createShape(name, JSON.stringify(geojson), `#${styleColor.slice(-6)}`, opacity, parentFolderId, '', '');
+          if (polyStyle && polyStyle.length === 8) {
+            opacity = parseInt(polyStyle.substr(0,2), 16) / 255;
+          }
+          await createShape(name, JSON.stringify(geojson), color, opacity, folderId || null, '', '');
           count++;
         }
       }
@@ -1845,23 +1781,24 @@ async function importKMLText(text, sourceName) {
       const p = coords.split(/[\s,]+/).filter(Boolean);
       const lng = parseFloat(p[0]), lat = parseFloat(p[1]);
       if (!isNaN(lat) && !isNaN(lng)) {
-        await createPoint(name, lat, lng, '#0891b2', parentFolderId, '', '');
+        await createPoint(name, lat, lng, '#0891b2', folderId || null, '', '');
         count++;
       }
     }
   }
   await renderTree();
-  const msg = parentFolderId
-    ? `${count} elemento(s) importado(s) na pasta "${sourceName.replace(/\.(kmz|kml|json)$/i,'')}"` 
-    : `${count} elemento(s) importado(s) de ${sourceName}`;
-  showStatus(msg);
+  const label = folderId && !parentFolderId
+    ? `${count} elemento(s) importado(s) na pasta "${sourceName.replace(/\.(kmz|kml)$/i,'')}"`
+    : `${count} elemento(s) importado(s) de "${sourceName}"`;
+  showStatus(label);
+  return count;
 }
 
 // ═══════════════════════════════════════════════════════════
-// PASTA DE SAVE AUTOMÁTICO (ESTRUTURA ESPELHADA)
+// PASTA DE SAVE AUTOMÁTICO
 // ═══════════════════════════════════════════════════════════
 
-// ── Ordenação topológica correta para hierarquias multi-nível ──
+// ── Ordenação topológica (garante que pais sejam inseridos antes dos filhos)
 function topoSortLayers(layers) {
   const byId = Object.fromEntries(layers.map(l => [String(l.id), l]));
   const visited = new Set();
@@ -1876,7 +1813,7 @@ function topoSortLayers(layers) {
   return result;
 }
 
-// ── Importa camadas de um backup JSON respeitando hierarquia ──
+// ── Importa camadas de um backup JSON preservando hierarquia
 async function importLayersFromBackup(layers, defaultParentId = null) {
   if (!layers || !layers.length) return 0;
   const ordered = topoSortLayers(layers);
@@ -1928,27 +1865,27 @@ async function selectSaveFolder() {
     showStatus(`Conectando à pasta "${saveDirHandle.name}"…`, 'info');
 
     let importedCount = 0;
+    let usedBackup = false;
 
     // Prioridade 1: carregar do backup JSON completo na raiz da pasta
-    let usedBackup = false;
     try {
       const jsonHandle = await saveDirHandle.getFileHandle('aquamap-pontos.json');
-      const jsonFile = await jsonHandle.getFile();
-      const text = await jsonFile.text();
-      const data = JSON.parse(text);
+      const jsonFile   = await jsonHandle.getFile();
+      const text       = await jsonFile.text();
+      const data       = JSON.parse(text);
       if (data && data.layers && data.layers.length > 0) {
         showStatus('Carregando backup…', 'info');
         importedCount = await importLayersFromBackup(data.layers, null);
-        usedBackup = true;
+        usedBackup    = true;
       }
     } catch (e) {
       if (e.name !== 'NotFoundError' && e.name !== 'TypeMismatchError') {
         console.warn('[AquaMap] Erro ao ler backup JSON:', e);
       }
-      // Sem backup: faz varredura recursiva de KMZ/KML
     }
 
-    // Prioridade 2 (fallback): varredura recursiva quando não há backup JSON
+    // Prioridade 2: varredura recursiva de pastas e arquivos KMZ/KML
+    // quando não há backup JSON — NÃO altera nenhum arquivo existente
     if (!usedBackup) {
       importedCount = await importFromDirectory(saveDirHandle, null);
     }
@@ -1957,14 +1894,20 @@ async function selectSaveFolder() {
     if (importedCount > 0) {
       showStatus(`${importedCount} camada(s) carregada(s) de "${saveDirHandle.name}"`, 'success');
     } else {
-      showStatus(`Pasta "${saveDirHandle.name}" conectada — nenhum dado encontrado para importar`, 'info');
+      showStatus(`Pasta "${saveDirHandle.name}" conectada`, 'info');
     }
+    // Salva JSON de backup agora que carregamos tudo
     await autoSave();
   } catch (e) {
     if (e.name !== 'AbortError') showStatus('Erro ao selecionar pasta: ' + e.message, 'error');
   }
 }
 
+// ── Varredura recursiva de pastas:
+//    - Subpastas   → camadas do tipo 'folder' (hierarquia preservada)
+//    - KMZ / KML   → pontos e shapes importados como filhos da pasta correspondente
+//    - JSON        → importado preservando hierarquia interna
+//    NUNCA modifica ou apaga arquivos existentes.
 async function importFromDirectory(dirHandle, parentId) {
   let totalCount = 0;
   try {
@@ -1973,14 +1916,17 @@ async function importFromDirectory(dirHandle, parentId) {
       entries.push({ name, handle });
     }
 
-    // Primeiro, processa subpastas (cria pastas no banco e recursa)
+    // 1. Processa subpastas primeiro (cria camada folder e recursão)
     for (const entry of entries) {
       if (entry.handle.kind === 'directory') {
+        // Não duplica pastas já existentes com o mesmo nome e mesmo pai
         const existing = (await db.layers.toArray()).find(l =>
           l.type === 'folder' && l.name === entry.name && l.parentId === parentId
         );
         let folderId;
-        if (!existing) {
+        if (existing) {
+          folderId = existing.id;
+        } else {
           folderId = await db.layers.add({
             name: entry.name,
             type: 'folder',
@@ -1993,56 +1939,53 @@ async function importFromDirectory(dirHandle, parentId) {
           });
           expandedFolders.add(folderId);
           totalCount++;
-        } else {
-          folderId = existing.id;
         }
-        // Recursão com o folderId como novo parent
         totalCount += await importFromDirectory(entry.handle, folderId);
       }
     }
 
-    // Depois, processa arquivos (KML/KMZ/JSON)
+    // 2. Processa arquivos (KMZ / KML / JSON) — sem alterar os originais
     for (const entry of entries) {
-      if (entry.handle.kind === 'file') {
-        const fileName = entry.name;
-        // O backup principal da raiz é tratado em selectSaveFolder — evita duplicatas
-        if (parentId === null && fileName === 'aquamap-pontos.json') continue;
+      if (entry.handle.kind !== 'file') continue;
+      const fileName = entry.name;
+      // O backup principal da raiz é tratado separadamente — ignora aqui
+      if (parentId === null && fileName === 'aquamap-pontos.json') continue;
 
-        const ext = fileName.split('.').pop().toLowerCase();
-        if (!['kmz', 'kml', 'json'].includes(ext)) continue;
+      const ext = fileName.split('.').pop().toLowerCase();
+      if (!['kmz', 'kml', 'json'].includes(ext)) continue;
 
-        try {
-          const file = await entry.handle.getFile();
-          if (ext === 'json') {
-            const text = await file.text();
-            let data;
-            try { data = JSON.parse(text); } catch { continue; }
-            if (data && data.layers && data.layers.length > 0) {
-              // JSON de subpasta: importa com hierarquia preservada, raízes ancoradas na pasta atual
-              totalCount += await importLayersFromBackup(data.layers, parentId);
-            }
-          } else if (ext === 'kmz') {
-            try {
-              const zip = await JSZip.loadAsync(file);
-              const kmlEntry = Object.values(zip.files).find(f =>
-                !f.dir && f.name.toLowerCase().endsWith('.kml'));
-              if (kmlEntry) {
-                const text = await kmlEntry.async('text');
-                const n = await importKMLTextSilent(text, fileName, parentId);
-                totalCount += n;
-              }
-            } catch (ze) {
-              console.warn('[AquaMap] Erro ao ler KMZ:', fileName, ze);
-            }
-          } else {
-            // KML
-            const text = await file.text();
-            const n = await importKMLTextSilent(text, fileName, parentId);
+      try {
+        const file = await entry.handle.getFile();
+
+        if (ext === 'json') {
+          // JSON de subpasta: importa hierarquia preservada ancorada na pasta atual
+          const text = await file.text();
+          let data;
+          try { data = JSON.parse(text); } catch { continue; }
+          if (data && data.layers && data.layers.length > 0) {
+            totalCount += await importLayersFromBackup(data.layers, parentId);
+          }
+
+        } else if (ext === 'kmz') {
+          const zip = await JSZip.loadAsync(file);
+          const kmlEntry = Object.values(zip.files).find(f =>
+            !f.dir && f.name.toLowerCase().endsWith('.kml'));
+          if (kmlEntry) {
+            const text = await kmlEntry.async('text');
+            // Passa parentId para que os elementos fiquem dentro da pasta correta
+            // e o nome do arquivo como agrupador se houver múltiplos placemarks
+            const n = await importKMLSilent(text, fileName.replace(/\.kmz$/i,''), parentId);
             totalCount += n;
           }
-        } catch (fe) {
-          console.warn('[AquaMap] Erro ao processar arquivo:', fileName, fe);
+
+        } else {
+          // KML
+          const text = await file.text();
+          const n = await importKMLSilent(text, fileName.replace(/\.kml$/i,''), parentId);
+          totalCount += n;
         }
+      } catch (fe) {
+        console.warn('[AquaMap] Erro ao processar arquivo:', fileName, fe);
       }
     }
   } catch (e) {
@@ -2051,44 +1994,73 @@ async function importFromDirectory(dirHandle, parentId) {
   return totalCount;
 }
 
-async function importKMLTextSilent(text, sourceName, parentId) {
+// ── Importa KML silenciosamente (sem confirmação) agrupando múltiplos placemarks
+//    em uma sub-pasta nomeada pelo arquivo, dentro do parentId informado.
+//    Preserva pontos E shapes. Não modifica nenhum arquivo no disco.
+async function importKMLSilent(text, baseName, parentId) {
   try {
     const doc = new DOMParser().parseFromString(text, 'application/xml');
+    if (doc.querySelector('parsererror')) return 0;
     const pms = doc.getElementsByTagName('Placemark');
     if (!pms.length) return 0;
+
+    // Se o KMZ/KML tem mais de 1 placemark, agrupa em sub-pasta com o nome do arquivo
+    let groupFolderId = parentId;
+    if (pms.length > 1) {
+      groupFolderId = await db.layers.add({
+        name: baseName,
+        type: 'folder',
+        parentId: parentId,
+        color: '#0891b2',
+        visible: true,
+        expanded: true,
+        order: (await getMaxOrder()) + 10,
+        createdAt: new Date()
+      });
+      expandedFolders.add(groupFolderId);
+    }
+
     let count = 0;
     for (const pm of pms) {
-      const name = pm.getElementsByTagName('name')[0]?.textContent?.trim() || `Elemento ${count+1}`;
-      const coords = pm.getElementsByTagName('coordinates')[0]?.textContent?.trim();
-      const polygon = pm.getElementsByTagName('Polygon')[0];
-      const lineString = pm.getElementsByTagName('LineString')[0];
-      if (polygon || lineString) {
-        const geomEl = polygon || lineString;
+      const name   = pm.getElementsByTagName('name')[0]?.textContent?.trim() || `Elemento ${count+1}`;
+      const coordsEl = pm.getElementsByTagName('coordinates')[0]?.textContent?.trim();
+      const polygon   = pm.getElementsByTagName('Polygon')[0];
+      const lineStr   = pm.getElementsByTagName('LineString')[0];
+
+      if (polygon || lineStr) {
+        const geomEl   = polygon || lineStr;
         const geomType = polygon ? 'Polygon' : 'LineString';
-        const outerCoords = geomEl.getElementsByTagName('coordinates')[0]?.textContent?.trim();
-        if (outerCoords) {
-          const points = outerCoords.split(/\s+/).filter(Boolean).map(p => {
+        const outerCrd = geomEl.getElementsByTagName('coordinates')[0]?.textContent?.trim();
+        if (outerCrd) {
+          const pts = outerCrd.split(/\s+/).filter(Boolean).map(p => {
             const [lng, lat] = p.split(',').map(Number);
-            return [lat, lng];
+            return [lng, lat];
           });
-          if (points.length >= 3 || geomType === 'LineString') {
+          if (pts.length >= 2) {
             const geojson = geomType === 'Polygon'
-              ? { type: 'Feature', geometry: { type: 'Polygon', coordinates: [points] }, properties: {} }
-              : { type: 'Feature', geometry: { type: 'LineString', coordinates: points }, properties: {} };
-            await createShapeSilent(name, JSON.stringify(geojson), '#8b5cf6', 0.5, parentId);
+              ? { type: 'Feature', geometry: { type: 'Polygon', coordinates: [pts] }, properties: {} }
+              : { type: 'Feature', geometry: { type: 'LineString', coordinates: pts }, properties: {} };
+            const styleColor = pm.getElementsByTagName('LineStyle')[0]?.getElementsByTagName('color')[0]?.textContent;
+            const polyStyle  = pm.getElementsByTagName('PolyStyle')[0]?.getElementsByTagName('color')[0]?.textContent;
+            let color   = '#8b5cf6';
+            let opacity = 0.5;
+            if (styleColor && styleColor.length >= 6) color = '#' + styleColor.slice(-6);
+            if (polyStyle && polyStyle.length === 8) opacity = parseInt(polyStyle.substr(0,2), 16) / 255;
+            await createShapeSilent(name, JSON.stringify(geojson), color, opacity, groupFolderId);
             count++;
           }
         }
-      } else if (coords) {
-        const p = coords.split(/[\s,]+/).filter(Boolean);
-        const lng = parseFloat(p[0]), lat = parseFloat(p[1]);
+      } else if (coordsEl) {
+        const p   = coordsEl.split(/[\s,]+/).filter(Boolean);
+        const lng = parseFloat(p[0]);
+        const lat = parseFloat(p[1]);
         if (!isNaN(lat) && !isNaN(lng)) {
-          await createPointSilent(name, lat, lng, '#0891b2', parentId);
+          await createPointSilent(name, lat, lng, '#0891b2', groupFolderId);
           count++;
         }
       }
     }
-    return count;
+    return count + (pms.length > 1 ? 1 : 0); // +1 pela pasta criada
   } catch (e) {
     return 0;
   }
@@ -2114,78 +2086,41 @@ async function createShapeSilent(name, geojsonStr, color, opacity, parentId) {
   addMarkerToMap(saved);
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// AUTO SAVE — salva APENAS o backup JSON (aquamap-pontos.json) na raiz.
+// NÃO cria nem modifica arquivos KMZ individuais por ponto/shape.
+// NÃO desmembra arquivos existentes na pasta.
+// ══════════════════════════════════════════════════════════════════════
 async function autoSave() {
   if (!saveDirHandle) return;
   try {
     const all = await db.layers.toArray();
-    // Salva JSON completo na raiz
     const content = JSON.stringify(
       { version: '2.0', app: 'AquaMap', exportDate: new Date().toISOString(), layers: all },
       null, 2
     );
-    const backupFile = await saveDirHandle.getFileHandle('aquamap-pontos.json', { create: true });
+    const backupFile     = await saveDirHandle.getFileHandle('aquamap-pontos.json', { create: true });
     const backupWritable = await backupFile.createWritable();
     await backupWritable.write(content);
     await backupWritable.close();
-
-    // Espelha pastas e arquivos KMZ
-    const folders = all.filter(l => l.type === 'folder');
-    for (const folder of folders) {
-      const pathParts = await getFolderPath(folder.id);
-      if (pathParts.length > 0) {
-        await getOrCreateDirPath(saveDirHandle, pathParts);
-      }
-    }
-
-    const items = all.filter(l => l.type === 'point' || l.type === 'shape');
-    for (const item of items) {
-      const pathParts = item.parentId ? await getFolderPath(item.parentId) : [];
-      const dirHandle = pathParts.length > 0 ? await getOrCreateDirPath(saveDirHandle, pathParts) : saveDirHandle;
-      if (!dirHandle) continue;
-      const kmzBlob = await generateKMZ(item);
-      if (kmzBlob) {
-        const safeName = item.name.replace(/[<>:"/\\|?*]/g, '_') + '.kmz';
-        const fileHandle = await dirHandle.getFileHandle(safeName, { create: true });
-        const writable = await fileHandle.createWritable();
-        await writable.write(kmzBlob);
-        await writable.close();
-      }
-    }
   } catch (e) {
     if (e.name === 'NotAllowedError') {
       try {
         const perm = await saveDirHandle.requestPermission({ mode: 'readwrite' });
         if (perm === 'granted') await autoSave();
-        else { saveDirHandle = null; updateSaveFolderUI(); showStatus('Permissão negada — pasta de save removida', 'error'); }
-      } catch { saveDirHandle = null; updateSaveFolderUI(); }
+        else {
+          saveDirHandle = null;
+          updateSaveFolderUI();
+          showStatus('Permissão negada — pasta de save removida', 'error');
+        }
+      } catch {
+        saveDirHandle = null;
+        updateSaveFolderUI();
+      }
     } else {
       console.warn('[AquaMap] Auto-save error:', e);
     }
   }
-}
-
-async function getFolderPath(folderId) {
-  if (!folderId) return [];
-  const path = [];
-  let current = await db.layers.get(folderId);
-  while (current && current.parentId) {
-    path.unshift(current.name);
-    current = await db.layers.get(current.parentId);
-  }
-  if (current) path.unshift(current.name);
-  return path;
-}
-
-async function getOrCreateDirPath(rootHandle, pathParts) {
-  let current = rootHandle;
-  for (const part of pathParts) {
-    try {
-      current = await current.getDirectoryHandle(part, { create: true });
-    } catch (e) {
-      return null;
-    }
-  }
-  return current;
 }
 
 function scheduleAutoSave() {
