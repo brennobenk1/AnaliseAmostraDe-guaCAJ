@@ -1378,22 +1378,41 @@ function selectSwatch(color) {
 async function applyColor() {
   const color = document.getElementById('colorCustom').value;
 
+  // Aplica a cor a um item; se for pasta, propaga para todos os filhos (pontos/shapes)
+  async function applyColorToLayer(id) {
+    const l = await db.layers.get(id);
+    if (!l) return;
+    await db.layers.update(id, { color });
+    if (l.type === 'point' || l.type === 'shape') {
+      setMarkerColor(id, color);
+    } else if (l.type === 'folder') {
+      // Propaga a cor para todos os descendentes (pontos e shapes) e atualiza o mapa
+      const all = await db.layers.toArray();
+      const descendants = getAllPointsInFolder(id, all);
+      for (const child of descendants) {
+        await db.layers.update(child.id, { color });
+        setMarkerColor(child.id, color);
+      }
+    }
+  }
+
   if (colorTargetType === 'selected') {
     for (const id of selectedIds) {
-      await db.layers.update(id, { color });
-      setMarkerColor(id, color);
+      const l = await db.layers.get(id);
+      if (l) pushUndo('update', { id, before: { color: l.color } });
+      await applyColorToLayer(id);
     }
     showStatus(`Cor aplicada a ${selectedIds.size} item(ns)`);
   } else if (colorTargetId) {
     const l = await db.layers.get(colorTargetId);
     if (l) pushUndo('update', { id: colorTargetId, before: { color: l.color } });
-    await db.layers.update(colorTargetId, { color });
-    setMarkerColor(colorTargetId, color);
+    await applyColorToLayer(colorTargetId);
     showStatus('Cor alterada');
   }
 
   closeModal('colorModal');
   await renderTree();
+  await autoSave();   // garante persistência imediata no arquivo de save
 }
 
 // ═══════════════════════════════════════════════════════════
