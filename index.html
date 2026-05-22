@@ -942,7 +942,16 @@ async function createFolder(name, parentId, color) {
   });
   expandedFolders.add(id);
   pushUndo('create', { id });
+  // Cria diretório físico na pasta de save em tempo real
+  if (saveDirHandle) {
+    try {
+      const parentHandle = await getPhysicalDirHandle(parentId);
+      if (parentHandle) await parentHandle.getDirectoryHandle(name.trim(), { create: true });
+    } catch(e) { console.warn('[AquaMap] Erro ao criar pasta física:', e); }
+  }
+
   await renderTree();
+  await autoSave(); // persiste imediatamente
   showStatus(`Pasta "${name.trim()}" criada`);
   return id;
 }
@@ -951,8 +960,21 @@ async function updateFolder(id, name, parentId, color) {
   const before = await db.layers.get(id);
   if (!before) return;
   pushUndo('update', { id, before: { name: before.name, parentId: before.parentId, color: before.color } });
-  await db.layers.update(id, { name: name.trim() || before.name, parentId: parentId || null, color: color || before.color });
+  const newColor = color || before.color;
+  await db.layers.update(id, { name: name.trim() || before.name, parentId: parentId || null, color: newColor });
+
+  // Se a cor mudou, propaga para todos os pontos/shapes descendentes
+  if (newColor !== before.color) {
+    const allLyrs = await db.layers.toArray();
+    const descendants = getAllPointsInFolder(id, allLyrs);
+    for (const child of descendants) {
+      await db.layers.update(child.id, { color: newColor });
+      setMarkerColor(child.id, newColor);
+    }
+  }
+
   await renderTree();
+  await autoSave();
   showStatus('Pasta atualizada');
 }
 
@@ -976,6 +998,7 @@ async function createPoint(name, lat, lng, color, parentId, desc, month) {
   const saved = await db.layers.get(id);
   addMarkerToMap(saved);
   pushUndo('create', { id });
+  await autoSave(); // persiste o ponto imediatamente
   return id;
 }
 
@@ -1025,6 +1048,7 @@ async function createShape(name, geojsonStr, color, opacity, parentId, desc, mon
   const saved = await db.layers.get(id);
   addMarkerToMap(saved);
   pushUndo('create', { id });
+  await autoSave(); // persiste o shape imediatamente
   return id;
 }
 
@@ -1346,10 +1370,19 @@ async function confirmEdit() {
     const updated = await db.layers.get(editingLayerId);
     removeMarkerFromMap(editingLayerId);
     addMarkerToMap(updated);
+  } else if (layer.type === 'folder' && updates.color && updates.color !== layer.color) {
+    // Propaga nova cor para todos os pontos/shapes dentro da pasta (recursivamente)
+    const allLyrs = await db.layers.toArray();
+    const descendants = getAllPointsInFolder(editingLayerId, allLyrs);
+    for (const child of descendants) {
+      await db.layers.update(child.id, { color: updates.color });
+      setMarkerColor(child.id, updates.color);
+    }
   }
 
   closeModal('editModal');
   await renderTree();
+  await autoSave();
   showStatus('Alterações salvas');
 }
 
@@ -2134,6 +2167,31 @@ async function autoSave() {
       console.warn('[AquaMap] Auto-save error:', e);
     }
   }
+}
+
+// ── Retorna o FileSystemDirectoryHandle físico correspondente a um folderId.
+//    Navega a cadeia de ancestrais e cria os diretórios se necessário.
+async function getPhysicalDirHandle(folderId) {
+  if (!saveDirHandle) return null;
+  if (!folderId) return saveDirHandle;
+  const chain = [];
+  let cid = folderId;
+  while (cid) {
+    const lyr = await db.layers.get(cid);
+    if (!lyr || lyr.type !== 'folder') break;
+    chain.unshift(lyr);
+    cid = lyr.parentId || null;
+  }
+  let handle = saveDirHandle;
+  for (const folder of chain) {
+    try {
+      handle = await handle.getDirectoryHandle(folder.name, { create: true });
+    } catch(e) {
+      console.warn('[AquaMap] getPhysicalDirHandle erro:', e);
+      return null;
+    }
+  }
+  return handle;
 }
 
 function scheduleAutoSave() {
