@@ -187,9 +187,54 @@ body{font-family:'IBM Plex Sans',sans-serif;font-size:14px;background:var(--bg0)
 
 /* Point label */
 .point-label{font-size:10px;font-family:'IBM Plex Sans',sans-serif;font-weight:500;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.9);white-space:nowrap;pointer-events:none;background:rgba(0,0,0,.5);border-radius:3px;padding:1px 4px}
+
+/* ── STARTUP OVERLAY ── */
+#startupOverlay{position:fixed;inset:0;background:var(--bg0);z-index:99999;display:flex;align-items:center;justify-content:center}
+.startup-box{background:var(--bg3);border:1px solid var(--border2);border-radius:16px;padding:40px 36px;max-width:430px;width:92%;text-align:center;box-shadow:0 0 80px rgba(0,0,0,.9)}
+.startup-icon{font-size:52px;color:var(--accent-l);margin-bottom:18px}
+.startup-box h2{font-size:22px;font-weight:700;color:var(--text);margin-bottom:10px}
+.startup-box p{font-size:13px;color:var(--text2);line-height:1.75;margin-bottom:24px}
+.startup-btn{display:inline-flex;align-items:center;gap:9px;padding:11px 28px;background:var(--accent);border:none;border-radius:var(--r);color:#fff;font-size:14px;font-family:inherit;font-weight:600;cursor:pointer;transition:background .15s;box-shadow:0 2px 12px rgba(8,145,178,.4)}
+.startup-btn:hover{background:var(--accent-h)}
+.startup-note{font-size:11px;color:var(--text3);margin-top:14px;line-height:1.6}
+
+/* ── SIDEBAR TABS ── */
+.sidebar-tabs{display:flex;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0}
+.stab{flex:1;padding:7px 5px;background:none;border:none;border-bottom:2px solid transparent;color:var(--text3);font-size:11px;font-family:inherit;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;text-transform:uppercase;letter-spacing:.6px;transition:all .15s}
+.stab:hover{color:var(--text2);background:var(--bg3)}
+.stab.active{color:var(--accent-l);border-bottom-color:var(--accent);background:var(--bg2)}
+.stab i{font-size:11px}
+
+/* ── LAYER/SHAPES PANELS ── */
+#panelLayers{display:flex;flex-direction:column;flex:1;overflow:hidden;min-height:0}
+#panelShapes{display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0}
+#shapesTree{flex:1;overflow-y:auto;padding:5px}
+#shShapes{padding:9px 10px;background:var(--bg1);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:5px;flex-shrink:0}
+#shShapes .shtitle{font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.8px;flex:1}
+#addShapeForm{background:var(--bg1);border-top:1px solid var(--border);padding:11px;flex-shrink:0;max-height:280px;overflow-y:auto}
+.li[data-depth="4"]{margin-left:72px}
+
+/* ── RE-UPLOAD SECTION ── */
+.reupload-sect{margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}
+.reupload-sect label{display:block;font-size:11px;color:var(--text2);margin-bottom:5px;font-weight:500}
+.reupload-row{display:flex;align-items:center;gap:8px}
+.reupload-row .src-name{font-size:11px;color:var(--text3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
 </style>
 </head>
 <body>
+
+<div id="startupOverlay">
+  <div class="startup-box">
+    <div class="startup-icon"><i class="fas fa-water"></i></div>
+    <h2>AquaMap</h2>
+    <p>Para começar, selecione a pasta onde seus arquivos KML/KMZ estão armazenados.<br>A pasta é <strong>obrigatória</strong> para carregar e manter os dados atualizados.</p>
+    <button class="startup-btn" onclick="startupSelectFolder()">
+      <i class="fas fa-folder-open"></i> Selecionar Pasta
+    </button>
+    <div class="startup-note">Use Chrome ou Edge para compatibilidade total com o sistema de pastas.</div>
+  </div>
+</div>
 
 <div id="app" style="display:flex;flex-direction:column;height:100vh;">
 
@@ -229,70 +274,94 @@ body{font-family:'IBM Plex Sans',sans-serif;font-size:14px;background:var(--bg0)
 
   <!-- SIDEBAR -->
   <aside id="sidebar">
-    <div id="sh">
-      <span class="shtitle">Camadas</span>
-      <button class="shbtn" id="btnNewFolder" title="Nova Pasta (Ctrl+Shift+F)"><i class="fas fa-folder-plus"></i></button>
-      <button class="shbtn" id="btnNewPoint" title="Novo Ponto (foco no form)"><i class="fas fa-map-pin"></i></button>
-      <button class="shbtn" id="btnNewShape" title="Novo Shape (polígono/linha)"><i class="fas fa-draw-polygon"></i></button>
-      <button class="shbtn" id="btnCopy" title="Copiar selecionados (Ctrl+C)"><i class="fas fa-copy"></i></button>
-      <button class="shbtn" id="btnPaste" title="Colar (Ctrl+V)"><i class="fas fa-paste"></i></button>
-      <button class="shbtn danger" id="btnDelSel" title="Excluir selecionados (Del)"><i class="fas fa-trash"></i></button>
+
+    <!-- TABS -->
+    <div class="sidebar-tabs">
+      <button class="stab active" id="tabLayers" onclick="switchTab('layers')"><i class="fas fa-layer-group"></i> Camadas</button>
+      <button class="stab" id="tabShapes" onclick="switchTab('shapes')"><i class="fas fa-draw-polygon"></i> Shapes</button>
     </div>
 
-    <div id="layerTree"></div>
+    <!-- CAMADAS PANEL -->
+    <div id="panelLayers">
+      <div id="sh">
+        <span class="shtitle">Camadas</span>
+        <button class="shbtn" id="btnNewFolder" title="Nova Pasta (Ctrl+Shift+F)"><i class="fas fa-folder-plus"></i></button>
+        <button class="shbtn" id="btnNewPoint" title="Novo Ponto (foco no form)"><i class="fas fa-map-pin"></i></button>
+        <button class="shbtn" id="btnCopy" title="Copiar selecionados (Ctrl+C)"><i class="fas fa-copy"></i></button>
+        <button class="shbtn" id="btnPaste" title="Colar (Ctrl+V)"><i class="fas fa-paste"></i></button>
+        <button class="shbtn danger" id="btnDelSel" title="Excluir selecionados (Del)"><i class="fas fa-trash"></i></button>
+      </div>
 
-    <div id="addForm">
-      <div class="fsect"><i class="fas fa-plus-circle"></i> Adicionar Pontos</div>
-      <div class="fg">
-        <label>Nome Base (opcional)</label>
-        <input type="text" id="fldName" placeholder="Ex: Ponto de Coleta">
+      <div id="layerTree"></div>
+
+      <div id="addForm">
+        <div class="fsect"><i class="fas fa-plus-circle"></i> Adicionar Pontos</div>
+        <div class="fg">
+          <label>Nome Base (opcional)</label>
+          <input type="text" id="fldName" placeholder="Ex: Ponto de Coleta">
+        </div>
+        <div class="fg">
+          <label>Pasta de Destino</label>
+          <select id="fldFolder"><option value="">— Raiz —</option></select>
+        </div>
+        <div class="fg">
+          <label>Mês/Período da Coleta</label>
+          <input type="month" id="fldMonth">
+        </div>
+        <div class="fg">
+          <label>Coordenadas (lat, lng — uma por linha)</label>
+          <textarea id="fldCoords" placeholder="-15.7938, -47.8828&#10;-23.5505, -46.6333"></textarea>
+        </div>
+        <div class="fg">
+          <label>Cor dos Pontos</label>
+          <input type="color" id="fldColor" value="#0891b2">
+        </div>
+        <div class="frow">
+          <button class="btn-p" id="btnAddPoints"><i class="fas fa-plus"></i> Adicionar</button>
+          <button class="btn-s" id="btnClearForm" title="Limpar formulário"><i class="fas fa-times"></i></button>
+        </div>
       </div>
-      <div class="fg">
-        <label>Pasta de Destino</label>
-        <select id="fldFolder"><option value="">— Raiz —</option></select>
+    </div><!-- #panelLayers -->
+
+    <!-- SHAPES PANEL -->
+    <div id="panelShapes">
+      <div id="shShapes">
+        <span class="shtitle">Shapes</span>
+        <button class="shbtn" id="btnNewShapePanel" title="Novo Shape (polígono/linha)"><i class="fas fa-draw-polygon"></i></button>
+        <button class="shbtn" id="btnCopyShape" title="Copiar selecionados"><i class="fas fa-copy"></i></button>
+        <button class="shbtn danger" id="btnDelSelShape" title="Excluir selecionados (Del)"><i class="fas fa-trash"></i></button>
       </div>
-      <div class="fg">
-        <label>Mês/Período da Coleta</label>
-        <input type="month" id="fldMonth">
+
+      <div id="shapesTree"></div>
+
+      <div id="addShapeForm">
+        <div class="fsect"><i class="fas fa-shapes"></i> Adicionar Shape</div>
+        <div class="fg">
+          <label>Nome do Shape</label>
+          <input type="text" id="fldShapeName" placeholder="Ex: Área de Interesse">
+        </div>
+        <div class="fg">
+          <label>Pasta de Destino</label>
+          <select id="fldShapeFolder"><option value="">— Raiz —</option></select>
+        </div>
+        <div class="fg">
+          <label>Coordenadas (GeoJSON Polygon ou array de [lat,lng])</label>
+          <textarea id="fldShapeCoords" placeholder='Ex: [[[-15.79,-47.88],[-15.80,-47.87],[-15.81,-47.89],[-15.79,-47.88]]]'></textarea>
+        </div>
+        <div class="fg">
+          <label>Cor do Shape</label>
+          <input type="color" id="fldShapeColor" value="#8b5cf6">
+        </div>
+        <div class="fg">
+          <label>Opacidade</label>
+          <input type="range" id="fldShapeOpacity" min="0" max="1" step="0.05" value="0.5">
+          <span id="opacityValue">0.5</span>
+        </div>
+        <div class="frow">
+          <button class="btn-p" id="btnAddShape"><i class="fas fa-plus"></i> Adicionar Shape</button>
+        </div>
       </div>
-      <div class="fg">
-        <label>Coordenadas (lat, lng — uma por linha)</label>
-        <textarea id="fldCoords" placeholder="-15.7938, -47.8828&#10;-23.5505, -46.6333"></textarea>
-      </div>
-      <div class="fg">
-        <label>Cor dos Pontos</label>
-        <input type="color" id="fldColor" value="#0891b2">
-      </div>
-      <div class="frow">
-        <button class="btn-p" id="btnAddPoints"><i class="fas fa-plus"></i> Adicionar</button>
-        <button class="btn-s" id="btnClearForm" title="Limpar formulário"><i class="fas fa-times"></i></button>
-      </div>
-      <div class="fsect" style="margin-top:12px"><i class="fas fa-shapes"></i> Adicionar Shape</div>
-      <div class="fg">
-        <label>Nome do Shape</label>
-        <input type="text" id="fldShapeName" placeholder="Ex: Área de Interesse">
-      </div>
-      <div class="fg">
-        <label>Pasta de Destino</label>
-        <select id="fldShapeFolder"><option value="">— Raiz —</option></select>
-      </div>
-      <div class="fg">
-        <label>Coordenadas do polígono (GeoJSON Polygon ou array de [lat,lng])</label>
-        <textarea id="fldShapeCoords" placeholder='Ex: [[[-15.79,-47.88],[-15.80,-47.87],[-15.81,-47.89],[-15.79,-47.88]]]'></textarea>
-      </div>
-      <div class="fg">
-        <label>Cor do Shape</label>
-        <input type="color" id="fldShapeColor" value="#8b5cf6">
-      </div>
-      <div class="fg">
-        <label>Opacidade</label>
-        <input type="range" id="fldShapeOpacity" min="0" max="1" step="0.05" value="0.5">
-        <span id="opacityValue">0.5</span>
-      </div>
-      <div class="frow">
-        <button class="btn-p" id="btnAddShape"><i class="fas fa-plus"></i> Adicionar Shape</button>
-      </div>
-    </div>
+    </div><!-- #panelShapes -->
 
     <div id="sstats">
       <div class="stat"><span id="stFolders">0</span><label>Pastas</label></div>
@@ -357,6 +426,15 @@ body{font-family:'IBM Plex Sans',sans-serif;font-size:14px;background:var(--bg0)
       <button class="mclose" data-close="editModal">×</button>
     </div>
     <div class="mbody" id="editModalBody"></div>
+    <div id="reuploadSection" style="display:none" class="mbody" style="border-top:1px solid var(--border);padding-top:0">
+      <div class="reupload-sect">
+        <label><i class="fas fa-upload" style="margin-right:5px;color:var(--warning)"></i>Substituir Arquivo Importado</label>
+        <div class="reupload-row">
+          <span class="src-name" id="reuploadSrcName"></span>
+          <button class="btn-s" onclick="reUploadFile(editingLayerId)" style="flex-shrink:0"><i class="fas fa-cloud-upload-alt"></i> Re-upar Arquivo</button>
+        </div>
+      </div>
+    </div>
     <div class="mfoot">
       <button class="btn-s" data-close="editModal">Cancelar</button>
       <button class="btn-p" id="btnConfirmEdit"><i class="fas fa-save"></i> Salvar</button>
@@ -682,13 +760,19 @@ function getAllPointsInFolder(folderId, allLayers) {
 }
 
 async function renderTree() {
+  await renderLayersTree();
+  await renderShapesTree();
+}
+
+async function renderLayersTree() {
   const all = await db.layers.toArray();
   all.sort((a, b) => (a.order || 0) - (b.order || 0));
 
   const q = document.getElementById('searchInput').value.toLowerCase().trim();
   const container = document.getElementById('layerTree');
 
-  if (all.length === 0) {
+  const layerItems = all.filter(l => l.type !== 'shape');
+  if (layerItems.length === 0) {
     container.innerHTML = `<div class="empty-state"><i class="fas fa-water"></i>
       <p>Nenhuma camada ainda.<br>Crie uma pasta ou adicione pontos.</p></div>`;
     updateStats(all);
@@ -698,7 +782,7 @@ async function renderTree() {
   }
 
   let html = '';
-  const roots = all.filter(l => !l.parentId);
+  const roots = all.filter(l => !l.parentId && l.type !== 'shape');
   for (const item of roots) html += buildItemHTML(item, all, 0, q);
 
   container.innerHTML = html;
@@ -708,13 +792,85 @@ async function renderTree() {
   scheduleAutoSave();
 }
 
+async function renderShapesTree() {
+  const all = await db.layers.toArray();
+  const shapes = all.filter(l => l.type === 'shape').sort((a,b)=>(a.order||0)-(b.order||0));
+  const container = document.getElementById('shapesTree');
+  if (!shapes.length) {
+    container.innerHTML = `<div class="empty-state"><i class="fas fa-draw-polygon"></i>
+      <p>Nenhum shape ainda.<br>Adicione um shape abaixo.</p></div>`;
+    return;
+  }
+  const folderMap = {};
+  all.filter(l => l.type === 'folder').forEach(f => { folderMap[f.id] = f.name; });
+  let html = '';
+  for (const shape of shapes) html += buildShapeItemHTML(shape, folderMap);
+  container.innerHTML = html;
+  attachShapeTreeEvents();
+}
+
+function buildShapeItemHTML(layer, folderMap) {
+  const isSel = selectedIds.has(layer.id);
+  let vClass = 'vis-on', vIcon = 'fa-eye';
+  if (layer.visible === false) { vClass = 'vis-off'; vIcon = 'fa-eye-slash'; }
+  let meta = layer.shapeType || 'Polígono';
+  if (layer.parentId && folderMap[layer.parentId]) meta += ' · ' + folderMap[layer.parentId];
+  return `<div class="li li-shape ${isSel?'sel':''}" data-id="${layer.id}" data-type="shape" data-depth="0" draggable="true">
+    <div class="li-drag"><i class="fas fa-grip-vertical"></i></div>
+    <div class="li-vis ${vClass}" onclick="event.stopPropagation();toggleVisibility(${layer.id})"><i class="fas ${vIcon}"></i></div>
+    <div class="li-icon si-shape" onclick="event.stopPropagation();centerOnShape(${layer.id})"><i class="fas fa-draw-polygon"></i></div>
+    <div class="li-dot" style="background:${esc(layer.color||'#8b5cf6')}"></div>
+    <div class="li-text">
+      <div class="lname" title="${esc(layer.name)}">${esc(layer.name)}</div>
+      <div class="lmeta">${esc(meta)}</div>
+    </div>
+    <div class="li-acts">
+      <button class="li-act" onclick="event.stopPropagation();centerOnShape(${layer.id})" title="Centralizar"><i class="fas fa-crosshairs"></i></button>
+      <button class="li-act" onclick="event.stopPropagation();editLayerById(${layer.id})" title="Editar"><i class="fas fa-edit"></i></button>
+      <button class="li-act" onclick="event.stopPropagation();copyLayerById(${layer.id})" title="Copiar"><i class="fas fa-copy"></i></button>
+      <button class="li-act danger" onclick="event.stopPropagation();deleteLayerById(${layer.id})" title="Excluir"><i class="fas fa-trash"></i></button>
+    </div>
+  </div>`;
+}
+
+function attachShapeTreeEvents() {
+  document.querySelectorAll('#shapesTree .li').forEach(el => {
+    const id = parseInt(el.dataset.id);
+    el.addEventListener('click', (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        selectedIds.has(id) ? selectedIds.delete(id) : selectedIds.add(id);
+        el.classList.toggle('sel', selectedIds.has(id));
+        lastSelectedId = id;
+      } else {
+        selectedIds.clear();
+        document.querySelectorAll('.li.sel').forEach(x => x.classList.remove('sel'));
+        selectedIds.add(id); el.classList.add('sel');
+        lastSelectedId = id;
+      }
+      updateSelStat();
+    });
+    el.addEventListener('dblclick', (e) => { e.stopPropagation(); editLayerById(id); });
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      if (!selectedIds.has(id)) {
+        selectedIds.clear();
+        document.querySelectorAll('.li.sel').forEach(x => x.classList.remove('sel'));
+        selectedIds.add(id); el.classList.add('sel');
+        lastSelectedId = id; updateSelStat();
+      }
+      ctxTarget = { type: 'layer', id, layerType: 'shape' };
+      showContextMenu(e.clientX, e.clientY);
+    });
+  });
+}
+
 function buildItemHTML(layer, all, depth, q) {
   const isFolder = layer.type === 'folder';
   const isShape  = layer.type === 'shape';
   const isPoint  = layer.type === 'point';
   const isSel    = selectedIds.has(layer.id);
   const isExp    = expandedFolders.has(layer.id);
-  const children = all.filter(l => l.parentId === layer.id).sort((a,b)=>(a.order||0)-(b.order||0));
+  const children = all.filter(l => l.parentId === layer.id && l.type !== 'shape').sort((a,b)=>(a.order||0)-(b.order||0));
 
   let sClass = '';
   if (q) {
@@ -1325,6 +1481,17 @@ async function editLayerById(id) {
     if (e.key === 'Enter') document.getElementById('btnConfirmEdit').click();
   });
 
+  // Show re-upload section if folder was imported from a file
+  const reSect = document.getElementById('reuploadSection');
+  const reName = document.getElementById('reuploadSrcName');
+  if (layer.type === 'folder' && layer.importedFrom) {
+    reSect.style.display = 'block';
+    reName.textContent = layer.importedFrom;
+  } else {
+    reSect.style.display = 'none';
+    if (reName) reName.textContent = '';
+  }
+
   openModal('editModal');
   document.getElementById('eName').focus();
 }
@@ -1766,81 +1933,117 @@ async function importKMZ(file) {
 }
 
 // ── Importação KML com suporte a pontos E shapes (polígonos/linhas)
+// ── Helper: get direct children with a specific tag name (XML-safe)
+function getDirectChildren(el, tagName) {
+  const result = [];
+  for (let i = 0; i < el.childNodes.length; i++) {
+    const c = el.childNodes[i];
+    if (c.nodeType === 1 && c.tagName === tagName) result.push(c);
+  }
+  return result;
+}
+
+// ── Process a KML Document or Folder element recursively (creates sub-folders and placemarks)
+async function processKMLElement(el, parentFolderId) {
+  let count = 0;
+  for (let i = 0; i < el.childNodes.length; i++) {
+    const child = el.childNodes[i];
+    if (child.nodeType !== 1) continue;
+    if (child.tagName === 'Folder') {
+      const nameEl = getDirectChildren(child, 'name')[0];
+      const folderName = nameEl ? nameEl.textContent.trim() : 'Subpasta';
+      const folderId = await db.layers.add({
+        name: folderName, type: 'folder', parentId: parentFolderId,
+        color: '#f59e0b', visible: true, expanded: true,
+        order: (await getMaxOrder()) + 10, createdAt: new Date()
+      });
+      expandedFolders.add(folderId);
+      count++;
+      count += await processKMLElement(child, folderId);
+    } else if (child.tagName === 'Placemark') {
+      count += await importKMLPlacemark(child, parentFolderId, true);
+    }
+  }
+  return count;
+}
+
+// ── Import a single KML Placemark (point or shape) under parentFolderId
+async function importKMLPlacemark(pm, parentFolderId, silent) {
+  const nameEl = getDirectChildren(pm, 'name')[0];
+  const name = nameEl ? nameEl.textContent.trim() : 'Elemento';
+  const polygon   = pm.getElementsByTagName('Polygon')[0];
+  const lineStr   = pm.getElementsByTagName('LineString')[0];
+  const coordsEl  = pm.getElementsByTagName('coordinates')[0]?.textContent?.trim();
+
+  if (polygon || lineStr) {
+    const geomEl   = polygon || lineStr;
+    const geomType = polygon ? 'Polygon' : 'LineString';
+    const outerCrd = geomEl.getElementsByTagName('coordinates')[0]?.textContent?.trim();
+    if (!outerCrd) return 0;
+    const pts = outerCrd.split(/\s+/).filter(Boolean).map(p => {
+      const parts = p.split(',');
+      return [parseFloat(parts[0]), parseFloat(parts[1])];
+    });
+    if (pts.length < 2) return 0;
+    const geojson = geomType === 'Polygon'
+      ? { type: 'Feature', geometry: { type: 'Polygon', coordinates: [pts] }, properties: {} }
+      : { type: 'Feature', geometry: { type: 'LineString', coordinates: pts }, properties: {} };
+    const styleColor = pm.getElementsByTagName('LineStyle')[0]?.getElementsByTagName('color')[0]?.textContent;
+    const polyStyle  = pm.getElementsByTagName('PolyStyle')[0]?.getElementsByTagName('color')[0]?.textContent;
+    let color = '#8b5cf6', opacity = 0.5;
+    if (styleColor && styleColor.length >= 6) color = '#' + styleColor.slice(-6);
+    if (polyStyle && polyStyle.length === 8) opacity = parseInt(polyStyle.substr(0,2), 16) / 255;
+    if (silent) await createShapeSilent(name, JSON.stringify(geojson), color, opacity, parentFolderId);
+    else await createShape(name, JSON.stringify(geojson), color, opacity, parentFolderId, '', '');
+    return 1;
+  } else if (coordsEl) {
+    const p = coordsEl.split(/[\s,]+/).filter(Boolean);
+    const lng = parseFloat(p[0]), lat = parseFloat(p[1]);
+    if (!isNaN(lat) && !isNaN(lng)) {
+      if (silent) await createPointSilent(name, lat, lng, '#0891b2', parentFolderId);
+      else await createPoint(name, lat, lng, '#0891b2', parentFolderId, '', '');
+      return 1;
+    }
+  }
+  return 0;
+}
+
 async function importKMLText(text, sourceName, parentFolderId = null) {
-  const doc  = new DOMParser().parseFromString(text, 'application/xml');
+  const doc = new DOMParser().parseFromString(text, 'application/xml');
   const parseErr = doc.querySelector('parsererror');
   if (parseErr) { showStatus('KML inválido ou corrompido', 'error'); return 0; }
-  const pms  = doc.getElementsByTagName('Placemark');
-  if (!pms.length) { showStatus('Nenhum elemento no KML', 'error'); return 0; }
+  const allPlacemarks = doc.getElementsByTagName('Placemark');
+  if (!allPlacemarks.length) { showStatus('Nenhum elemento no KML', 'error'); return 0; }
 
-  if (!confirm(`Importar ${pms.length} elemento(s) de "${sourceName}"?`)) return 0;
+  if (!confirm(`Importar ${allPlacemarks.length} elemento(s) de "${sourceName}"?`)) return 0;
 
-  // Se mais de 1 elemento e não há pasta pai definida, cria pasta com nome do arquivo
-  let folderId = parentFolderId;
-  if (pms.length > 1 && !folderId) {
-    const folderName = sourceName.replace(/\.(kmz|kml)$/i, '').trim() || sourceName;
-    folderId = await db.layers.add({
-      name: folderName,
-      type: 'folder',
-      parentId: null,
-      color: '#f59e0b',
-      visible: true,
-      expanded: false,
-      order: (await getMaxOrder()) + 10,
-      createdAt: new Date()
-    });
-    pushUndo('create', { id: folderId });
-  }
+  const docEl = doc.querySelector('Document') || doc.documentElement;
+  const docNameEl = getDirectChildren(docEl, 'name')[0];
+  const docName = docNameEl ? docNameEl.textContent.trim() : sourceName.replace(/\.(kmz|kml)$/i, '');
+  const hasFolders = doc.getElementsByTagName('Folder').length > 0;
+
+  // Always create top-level folder for this file
+  const topFolderId = await db.layers.add({
+    name: docName || sourceName.replace(/\.(kmz|kml)$/i, ''),
+    type: 'folder', parentId: parentFolderId,
+    color: '#f59e0b', visible: true, expanded: true,
+    order: (await getMaxOrder()) + 10,
+    importedFrom: sourceName,
+    createdAt: new Date()
+  });
+  pushUndo('create', { id: topFolderId });
+  expandedFolders.add(topFolderId);
 
   let count = 0;
-  for (const pm of pms) {
-    const name   = pm.getElementsByTagName('name')[0]?.textContent?.trim() || `Elemento ${count+1}`;
-    const coords = pm.getElementsByTagName('coordinates')[0]?.textContent?.trim();
-    const polygon = pm.getElementsByTagName('Polygon')[0];
-    const lineString = pm.getElementsByTagName('LineString')[0];
-
-    if (polygon || lineString) {
-      const geomEl = polygon || lineString;
-      const geomType = polygon ? 'Polygon' : 'LineString';
-      const outerCoords = geomEl.getElementsByTagName('coordinates')[0]?.textContent?.trim();
-      if (outerCoords) {
-        const points = outerCoords.split(/\s+/).filter(Boolean).map(p => {
-          const [lng, lat] = p.split(',').map(Number);
-          return [lng, lat]; // GeoJSON usa [lng, lat]
-        });
-        if (points.length >= 2) {
-          const geojson = geomType === 'Polygon'
-            ? { type: 'Feature', geometry: { type: 'Polygon', coordinates: [points] }, properties: {} }
-            : { type: 'Feature', geometry: { type: 'LineString', coordinates: points }, properties: {} };
-          // Extrai cor/opacidade do estilo KML se disponível
-          const styleColor = pm.getElementsByTagName('LineStyle')[0]?.getElementsByTagName('color')[0]?.textContent;
-          const polyStyle  = pm.getElementsByTagName('PolyStyle')[0]?.getElementsByTagName('color')[0]?.textContent;
-          let color   = '#8b5cf6';
-          let opacity = 0.5;
-          if (styleColor && styleColor.length >= 6) {
-            color = '#' + styleColor.slice(-6);
-          }
-          if (polyStyle && polyStyle.length === 8) {
-            opacity = parseInt(polyStyle.substr(0,2), 16) / 255;
-          }
-          await createShape(name, JSON.stringify(geojson), color, opacity, folderId || null, '', '');
-          count++;
-        }
-      }
-    } else if (coords) {
-      const p = coords.split(/[\s,]+/).filter(Boolean);
-      const lng = parseFloat(p[0]), lat = parseFloat(p[1]);
-      if (!isNaN(lat) && !isNaN(lng)) {
-        await createPoint(name, lat, lng, '#0891b2', folderId || null, '', '');
-        count++;
-      }
+  if (hasFolders) {
+    count = await processKMLElement(docEl, topFolderId);
+  } else {
+    for (const pm of allPlacemarks) {
+      count += await importKMLPlacemark(pm, topFolderId, false);
     }
   }
   await renderTree();
-  const label = folderId && !parentFolderId
-    ? `${count} elemento(s) importado(s) na pasta "${sourceName.replace(/\.(kmz|kml)$/i,'')}"`
-    : `${count} elemento(s) importado(s) de "${sourceName}"`;
-  showStatus(label);
+  showStatus(`${count} elemento(s) importado(s) de "${sourceName}"`);
   return count;
 }
 
@@ -1946,6 +2149,9 @@ async function selectSaveFolder() {
     }
     // Salva JSON de backup agora que carregamos tudo
     await autoSave();
+    // Hide startup overlay if visible
+    const ov = document.getElementById('startupOverlay');
+    if (ov) ov.style.display = 'none';
   } catch (e) {
     if (e.name !== 'AbortError') showStatus('Erro ao selecionar pasta: ' + e.message, 'error');
   }
@@ -2041,76 +2247,44 @@ async function importFromDirectory(dirHandle, parentId) {
   return totalCount;
 }
 
-// ── Importa KML silenciosamente (sem confirmação) agrupando múltiplos placemarks
-//    em uma sub-pasta nomeada pelo arquivo, dentro do parentId informado.
-//    Preserva pontos E shapes. Não modifica nenhum arquivo no disco.
 async function importKMLSilent(text, baseName, parentId) {
   try {
     const doc = new DOMParser().parseFromString(text, 'application/xml');
     if (doc.querySelector('parsererror')) return 0;
-    const pms = doc.getElementsByTagName('Placemark');
-    if (!pms.length) return 0;
+    const allPlacemarks = doc.getElementsByTagName('Placemark');
+    if (!allPlacemarks.length) return 0;
 
-    // Se o KMZ/KML tem mais de 1 placemark, agrupa em sub-pasta com o nome do arquivo
-    let groupFolderId = parentId;
-    if (pms.length > 1) {
-      groupFolderId = await db.layers.add({
-        name: baseName,
-        type: 'folder',
-        parentId: parentId,
-        color: '#0891b2',
-        visible: true,
-        expanded: false,
-        order: (await getMaxOrder()) + 10,
-        createdAt: new Date()
-      });
-    }
+    const docEl = doc.querySelector('Document') || doc.documentElement;
+    const docNameEl = getDirectChildren(docEl, 'name')[0];
+    const docName = docNameEl ? docNameEl.textContent.trim() : baseName;
+    const hasFolders = doc.getElementsByTagName('Folder').length > 0;
 
-    let count = 0;
-    for (const pm of pms) {
-      const name   = pm.getElementsByTagName('name')[0]?.textContent?.trim() || `Elemento ${count+1}`;
-      const coordsEl = pm.getElementsByTagName('coordinates')[0]?.textContent?.trim();
-      const polygon   = pm.getElementsByTagName('Polygon')[0];
-      const lineStr   = pm.getElementsByTagName('LineString')[0];
+    // Always create top-level folder for this file
+    const topFolderId = await db.layers.add({
+      name: docName || baseName,
+      type: 'folder', parentId: parentId,
+      color: '#0891b2', visible: true, expanded: true,
+      order: (await getMaxOrder()) + 10,
+      importedFrom: baseName,
+      createdAt: new Date()
+    });
+    expandedFolders.add(topFolderId);
+    let count = 1;
 
-      if (polygon || lineStr) {
-        const geomEl   = polygon || lineStr;
-        const geomType = polygon ? 'Polygon' : 'LineString';
-        const outerCrd = geomEl.getElementsByTagName('coordinates')[0]?.textContent?.trim();
-        if (outerCrd) {
-          const pts = outerCrd.split(/\s+/).filter(Boolean).map(p => {
-            const [lng, lat] = p.split(',').map(Number);
-            return [lng, lat];
-          });
-          if (pts.length >= 2) {
-            const geojson = geomType === 'Polygon'
-              ? { type: 'Feature', geometry: { type: 'Polygon', coordinates: [pts] }, properties: {} }
-              : { type: 'Feature', geometry: { type: 'LineString', coordinates: pts }, properties: {} };
-            const styleColor = pm.getElementsByTagName('LineStyle')[0]?.getElementsByTagName('color')[0]?.textContent;
-            const polyStyle  = pm.getElementsByTagName('PolyStyle')[0]?.getElementsByTagName('color')[0]?.textContent;
-            let color   = '#8b5cf6';
-            let opacity = 0.5;
-            if (styleColor && styleColor.length >= 6) color = '#' + styleColor.slice(-6);
-            if (polyStyle && polyStyle.length === 8) opacity = parseInt(polyStyle.substr(0,2), 16) / 255;
-            await createShapeSilent(name, JSON.stringify(geojson), color, opacity, groupFolderId);
-            count++;
-          }
-        }
-      } else if (coordsEl) {
-        const p   = coordsEl.split(/[\s,]+/).filter(Boolean);
-        const lng = parseFloat(p[0]);
-        const lat = parseFloat(p[1]);
-        if (!isNaN(lat) && !isNaN(lng)) {
-          await createPointSilent(name, lat, lng, '#0891b2', groupFolderId);
-          count++;
-        }
+    if (hasFolders) {
+      count += await processKMLElement(docEl, topFolderId);
+    } else {
+      for (const pm of allPlacemarks) {
+        count += await importKMLPlacemark(pm, topFolderId, true);
       }
     }
-    return count + (pms.length > 1 ? 1 : 0); // +1 pela pasta criada
+    return count;
   } catch (e) {
+    console.warn('[AquaMap] importKMLSilent error:', e);
     return 0;
   }
 }
+
 
 async function createPointSilent(name, lat, lng, color, parentId) {
   const id = await db.layers.add({
@@ -2228,10 +2402,13 @@ function setupEvents() {
     document.getElementById('addForm').scrollIntoView({ behavior: 'smooth' });
     document.getElementById('fldCoords').focus();
   });
-  document.getElementById('btnNewShape').addEventListener('click', () => {
-    document.getElementById('addForm').scrollIntoView({ behavior: 'smooth' });
+  document.getElementById('btnNewShapePanel').addEventListener('click', () => {
+    switchTab('shapes');
+    document.getElementById('addShapeForm').scrollIntoView({ behavior: 'smooth' });
     document.getElementById('fldShapeCoords').focus();
   });
+  document.getElementById('btnCopyShape').addEventListener('click', copySelectedLayers);
+  document.getElementById('btnDelSelShape').addEventListener('click', deleteSelectedLayers);
   document.getElementById('btnCopy').addEventListener('click', copySelectedLayers);
   document.getElementById('btnPaste').addEventListener('click', () => {
     const pid = selectedIds.size === 1 ? [...selectedIds][0] : null;
@@ -2245,8 +2422,6 @@ function setupEvents() {
     document.getElementById('fldName').value = '';
     document.getElementById('fldCoords').value = '';
     document.getElementById('fldMonth').value = '';
-    document.getElementById('fldShapeName').value = '';
-    document.getElementById('fldShapeCoords').value = '';
     showStatus('Formulário limpo', 'info');
   });
 
@@ -2306,7 +2481,8 @@ function setupEvents() {
   });
   document.getElementById('cx-newShapeHere').addEventListener('click', () => {
     if (ctxTarget?.id) document.getElementById('fldShapeFolder').value = ctxTarget.id;
-    document.getElementById('addForm').scrollIntoView({ behavior: 'smooth' });
+    switchTab('shapes');
+    document.getElementById('addShapeForm').scrollIntoView({ behavior: 'smooth' });
     document.getElementById('fldShapeCoords').focus();
     hideCtx();
   });
@@ -2397,22 +2573,80 @@ function setupEvents() {
 async function init() {
   try {
     await initDB();
+    await db.layers.clear(); // Clear stale data — folder must be re-linked each session
+    markers = {};
     initMap();
-
-    const all = await db.layers.toArray();
-    for (const l of all) {
-      if (l.type === 'point' || l.type === 'shape') addMarkerToMap(l);
-      if (l.type === 'folder' && l.expanded !== false) expandedFolders.add(l.id);
-    }
-
-    await renderTree();
     setupEvents();
     document.getElementById('btnLabels').classList.add('on');
-    showStatus('AquaMap pronto');
+    // Show startup overlay — user MUST select a folder before proceeding
+    document.getElementById('startupOverlay').style.display = 'flex';
   } catch (err) {
     console.error('[AquaMap] Init error:', err);
     alert('Erro ao inicializar: ' + err.message);
   }
+}
+
+async function startupSelectFolder() {
+  await selectSaveFolder();
+  // If folder was selected successfully, hide the overlay
+  if (saveDirHandle) {
+    document.getElementById('startupOverlay').style.display = 'none';
+    showStatus('AquaMap pronto', 'success');
+  }
+}
+
+function switchTab(tab) {
+  document.getElementById('panelLayers').style.display = tab === 'layers' ? 'flex' : 'none';
+  document.getElementById('panelShapes').style.display = tab === 'shapes' ? 'flex' : 'none';
+  document.getElementById('tabLayers').classList.toggle('active', tab === 'layers');
+  document.getElementById('tabShapes').classList.toggle('active', tab === 'shapes');
+}
+
+async function reUploadFile(folderId) {
+  if (!folderId) return;
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.kml,.kmz';
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    closeModal('editModal');
+    showStatus('Substituindo arquivo…', 'info');
+    // Delete all descendants of this folder
+    const descs = await getAllDescendantIds(folderId);
+    for (const did of descs) removeMarkerFromMap(did);
+    await db.layers.bulkDelete(descs);
+    // Parse and re-import
+    const ext = file.name.split('.').pop().toLowerCase();
+    let text;
+    if (ext === 'kmz') {
+      try {
+        const zip = await JSZip.loadAsync(file);
+        const kmlEntry = Object.values(zip.files).find(f => !f.dir && f.name.toLowerCase().endsWith('.kml'));
+        if (!kmlEntry) { showStatus('Nenhum KML encontrado no KMZ', 'error'); return; }
+        text = await kmlEntry.async('text');
+      } catch(ze) { showStatus('Erro ao ler KMZ: ' + ze.message, 'error'); return; }
+    } else {
+      text = await file.text();
+    }
+    const doc = new DOMParser().parseFromString(text, 'application/xml');
+    if (doc.querySelector('parsererror')) { showStatus('Arquivo KML inválido', 'error'); return; }
+    const docEl = doc.querySelector('Document') || doc.documentElement;
+    const hasFolders = doc.getElementsByTagName('Folder').length > 0;
+    const allPms = doc.getElementsByTagName('Placemark');
+    let count = 0;
+    if (hasFolders) {
+      count = await processKMLElement(docEl, folderId);
+    } else {
+      for (const pm of allPms) count += await importKMLPlacemark(pm, folderId, true);
+    }
+    await db.layers.update(folderId, { importedFrom: file.name });
+    await renderTree();
+    await autoSave();
+    await saveFileToArquivos(file);
+    showStatus(`Arquivo substituído: ${count} elemento(s) importado(s)`);
+  };
+  input.click();
 }
 
 document.addEventListener('DOMContentLoaded', init);
